@@ -145,7 +145,7 @@
     hepsiburada: [100, 140, 195, 248, 320, 383, 458, 529, 600],
     trendyol:    [102, 140, 200, 254, 310, 373, 442, 562, 629],
     eptt:        [83, 90, 144, 157, 169, 174, 193, 287, 338],
-    amazon:      [97, 122, 186, 228, 285, 338, 389, null, null],
+    amazon:      [97, 122, 186, 228, 285, 338, 389, 389, 389],
     ciceksepeti: [135, 192, 245, 305, 502, 555, 695, 930, 1165],
     pazarama:    [122, 165, 224, 286, 413, 528, 678, 905, 1132],
     koctas:      [124, 170, 182, 222, 222, 375, 408, 428, 428],
@@ -161,7 +161,7 @@
     ciceksepeti: { name: 'Çiçeksepeti', fee: 6.5, mode: 'tiers', tiers: [] },
     idefix:      { name: 'İdefix', fee: 10, mode: 'tiers', tiers: [{ max: 150, cargo: 33 }, { max: 250, cargo: 63 }] },
     koctas:      { name: 'Koçtaş', fee: 10, mode: 'tiers', tiers: [{ max: 300, cargo: 72 }] },
-    eptt:        { name: 'ePTT', fee: 6, mode: 'tiers', tiers: [] },
+    eptt:        { name: 'ePTT', fee: 6, mode: 'tiers', tiers: [], costRule: { maxCost: 165, cargo: 25 } },
     passo:       { name: 'Passo', fee: 0, mode: 'tiers', tiers: [] },
     site:        { name: 'Site', fee: 0, mode: 'shared', threshold: 400, tiers: [] },
   };
@@ -184,7 +184,7 @@
       id, active: true, threshold: 0, baremMaxDesi: null, ...JSON.parse(JSON.stringify(MP_BASE[id])),
       desiCargo: Object.fromEntries(DESI.map((d, i) => [d, DESI_TABLE[id][i]])),
     })),
-    rev: 2,
+    rev: 4,
     categories: CATS.map(([id, name, c]) => ({ id, name, rates: catRates(c) })),
   };
 
@@ -203,7 +203,11 @@
     return settings.marketplaces.filter((m) => m.active).map((mp) => {
       const rate = (cat && cat.rates[mp.id]) || { commission: 0, profit: 0 };
       const profit = input.profits && Number.isFinite(input.profits[mp.id]) ? input.profits[mp.id] : rate.profit;
-      const cargo = desiCargo(mp, input.desi, settings.desi);
+      let cargo = desiCargo(mp, input.desi, settings.desi);
+      // Maliyet kuralı: maliyet belirli tutarın altındaysa desiden bağımsız sabit kargo (ör. ePTT 165 ₺ altı → 25 ₺)
+      const cr = mp.costRule;
+      const costRuleHit = !!(cr && cr.maxCost > 0 && input.cost > 0 && input.cost < cr.maxCost);
+      if (costRuleHit) cargo = Number(cr.cargo) || 0;
       const row = { mp, commission: rate.commission, profit, defaultProfit: rate.profit, desiCargo: cargo };
       if (!(input.cost > 0)) return row;
       if (cargo === null) return { ...row, unavailable: true };
@@ -214,6 +218,7 @@
       const eff = noBarem ? { ...mp, mode: 'tiers', tiers: [] } : mp;
       const result = priceFor(product, eff, settings);
       if (noBarem) result.tier = `${lim} desi üstü – barem yok`;
+      if (costRuleHit && result.cargo === cargo) result.tier = `Maliyet ${cr.maxCost} ₺ altı – sabit kargo`;
       return { ...row, result };
     });
   }

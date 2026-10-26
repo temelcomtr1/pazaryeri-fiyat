@@ -1,6 +1,6 @@
 'use strict';
 // Pazaryeri Fiyatlandırma — GitHub Pages + Supabase sürümü
-const APP_VERSION = 3;
+const APP_VERSION = 5;
 
 // Beklenmeyen bir hata olursa boş ekran yerine açıklama göster
 function showFatal(msg) {
@@ -160,7 +160,17 @@ function normalizeSettings(s) {
   const def = Calc.DEFAULT_SETTINGS_V2;
   if (!s || s.version !== 2 || !Array.isArray(s.categories) || !s.categories.length) return structuredClone(def);
   // Kategori listesi güncellendiyse (rev) yeni kategoriler alınır
-  if ((s.rev || 1) < def.rev) { s.categories = structuredClone(def.categories); s.rev = def.rev; }
+  const rev = s.rev || 1;
+  if (rev < 2) s.categories = structuredClone(def.categories);
+  if (rev < 3) { // Amazon 35 ve 40 desi = 30 desi fiyatı
+    const amz = s.marketplaces.find((m) => m.id === 'amazon');
+    if (amz && amz.desiCargo) for (const d of [35, 40]) if (amz.desiCargo[d] == null || amz.desiCargo[d] === '') amz.desiCargo[d] = amz.desiCargo[30];
+  }
+  if (rev < 4) { // ePTT: maliyet 165 ₺ altı → 25 ₺ kargo
+    const ptt = s.marketplaces.find((m) => m.id === 'eptt');
+    if (ptt && !ptt.costRule) ptt.costRule = { maxCost: 165, cargo: 25 };
+  }
+  s.rev = def.rev;
   return s;
 }
 
@@ -179,7 +189,7 @@ function fillCalcSelectors() {
   $('#c-cat').innerHTML = s.categories.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
   if (s.categories.some((c) => c.id === curCat)) $('#c-cat').value = curCat;
   const ds = s.desi.slice().sort((a, b) => a - b);
-  $('#c-desi').innerHTML = ds.map((d, i) => `<option value="${d}">${i === 0 ? '0' : ds[i - 1] + ',1'}–${d} desi</option>`).join('');
+  $('#c-desi').innerHTML = ds.map((d) => `<option value="${d}">${fmtIn(d)} desi</option>`).join('');
   if (ds.includes(Number(curDesi))) $('#c-desi').value = curDesi;
 }
 
@@ -373,6 +383,10 @@ function renderMps() {
             <div class="tier-row"><button class="btn small" data-add-tier>+ Barem</button>
               <span class="hint">Üstünde: desi kargosu</span></div>
           </div>`}
+        <div class="tier-row" style="margin-top:10px">Maliyet
+          <input data-cr="maxCost" inputmode="decimal" placeholder="—" value="${numIn(m.costRule && m.costRule.maxCost)}"> ₺ altındaysa kargo
+          <input data-cr="cargo" inputmode="decimal" placeholder="—" value="${numIn(m.costRule && m.costRule.cargo)}"> ₺
+          <span class="hint">(desiden bağımsız; boş = kural yok)</span></div>
         <label class="field" style="max-width:260px; margin-top:10px">Barem en fazla kaç desiye kadar geçerli
           <input data-k="baremMaxDesi" inputmode="decimal" placeholder="Sınırsız" value="${numIn(m.baremMaxDesi)}"></label>
       </div>
@@ -389,6 +403,11 @@ $('#sub-mps').addEventListener('input', (e) => {
   if (el.dataset.k === 'active') m.active = el.checked;
   else if (el.dataset.k === 'name') m.name = el.value;
   else if (el.dataset.k === 'mode') { m.mode = el.value; if (m.mode === 'shared' && !m.threshold) m.threshold = 400; renderMps(); }
+  else if (el.dataset.cr) {
+    m.costRule = m.costRule || { maxCost: 0, cargo: 0 };
+    const v = parseNum(el.value); m.costRule[el.dataset.cr] = Number.isFinite(v) ? v : 0;
+    if (!(m.costRule.maxCost > 0)) m.costRule = m.costRule.cargo ? m.costRule : null;
+  }
   else if (el.dataset.k === 'baremMaxDesi') { const v = parseNum(el.value); m.baremMaxDesi = v > 0 ? v : null; }
   else if (el.dataset.k) m[el.dataset.k] = parseNum(el.value) || 0;
   else if (el.dataset.tier !== undefined) m.tiers[el.dataset.tier][el.dataset.tk] = parseNum(el.value) || 0;
