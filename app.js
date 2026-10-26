@@ -1,5 +1,24 @@
 'use strict';
 // Pazaryeri Fiyatlandırma — GitHub Pages + Supabase sürümü
+const APP_VERSION = 3;
+
+// Beklenmeyen bir hata olursa boş ekran yerine açıklama göster
+function showFatal(msg) {
+  if (document.getElementById('fatal')) return;
+  const d = document.createElement('div');
+  d.id = 'fatal';
+  d.style.cssText = 'max-width:560px;margin:60px auto;padding:20px 24px;background:#fbe9e6;color:#7a1f18;border-radius:10px;font:15px/1.5 system-ui,sans-serif';
+  d.innerHTML = '<b>Sayfa yüklenirken bir sorun oluştu.</b><br>Genellikle GitHub\'a yüklenen dosyalardan biri eksik ya da eski olduğunda görülür. ' +
+    '<b>index.html, app.js, calc.js, style.css</b> dosyalarının dördünü birlikte yükleyip sayfayı Ctrl+F5 ile yenileyin.' +
+    '<br><br><small style="opacity:.7">Teknik ayrıntı: ' + String(msg).replace(/[<>&]/g, '') + '</small>';
+  document.body.prepend(d);
+}
+window.addEventListener('error', (e) => showFatal(e.message));
+window.addEventListener('unhandledrejection', (e) => showFatal(e.reason && e.reason.message ? e.reason.message : e.reason));
+if (document.body.dataset.version !== String(APP_VERSION)) {
+  showFatal('index.html sürümü app.js ile uyuşmuyor');
+  throw new Error('Sürüm uyuşmazlığı');
+}
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

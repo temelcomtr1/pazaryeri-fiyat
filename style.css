@@ -177,3 +177,49 @@ table.mini input { width: 70px; padding: 4px 6px; text-align: right; }
   .mp-set { grid-template-columns: 1fr 1fr; }
   .table-wrap { max-height: none; }
 }
+
+/* ---- Fiyat hesapla ---- */
+.calc-inputs { display: grid; grid-template-columns: 1.4fr .8fr 1.3fr .6fr .8fr auto; gap: 14px; align-items: end; }
+.calc-inputs .big-field input { font-size: 20px; font-weight: 650; padding: 7px 12px; }
+.calc-table td, .calc-table th { padding: 10px 14px; }
+.calc-table tbody tr { cursor: default; }
+.calc-table .col-price { min-width: 140px; }
+.calc-table td.price-cell { font-size: 17px; font-weight: 700; color: var(--ink); cursor: copy; }
+.calc-table td.price-cell:hover { color: var(--accent); }
+.calc-table input.profit-in { width: 72px; text-align: right; padding: 5px 8px; }
+.calc-table input.profit-in.changed { border-color: var(--warn); background: var(--warn-soft); }
+.calc-table .sub2 { display: block; font-size: 11.5px; color: var(--ink-3); font-weight: 400; margin-top: 2px; }
+.calc-table tr.na td { color: var(--ink-3); }
+.calc-table .neg { color: var(--bad); font-weight: 600; }
+
+/* ---- Ayarlar ---- */
+.settings-head { display: flex; gap: 16px; align-items: end; flex-wrap: wrap; margin-bottom: 16px; }
+.subtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 16px; overflow-x: auto; }
+.subtab { background: none; border: 0; padding: 10px 14px; cursor: pointer; color: var(--ink-2); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.subtab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.sub-view { display: none; }
+.sub-view.active { display: block; }
+.edit-grid input { width: 78px; text-align: right; padding: 5px 8px; }
+.edit-grid td, .edit-grid th { padding: 6px 10px; }
+.edit-grid tbody tr { cursor: default; }
+.cat-card { margin-bottom: 14px; }
+.cat-card header { display: flex; gap: 12px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line-2); }
+.cat-card header input { max-width: 320px; font-weight: 600; }
+
+@media (max-width: 860px) {
+  .calc-inputs { grid-template-columns: 1fr 1fr; }
+  .calc-inputs .big-field { grid-column: 1 / -1; order: -1; }
+  .calc-table td, .calc-table th { padding: 8px 8px; }
+}
+@media (max-width: 640px) {
+  .calc-table th:nth-child(2), .calc-table td:nth-child(2),
+  .calc-table th:nth-child(3), .calc-table td:nth-child(3),
+  .calc-table th:nth-child(4), .calc-table td:nth-child(4),
+  .calc-table th:nth-child(6), .calc-table td:nth-child(6) { display: none; }
+  .calc-table tr.na td:nth-child(3) { display: table-cell; }
+  .calc-table td.name, .calc-table th.name { min-width: 0; position: static; }
+  .calc-table .col-price { min-width: 0; }
+  .calc-table td.price-cell { font-size: 15px; }
+  .calc-table td, .calc-table th { padding: 8px 6px; }
+  .calc-table input.profit-in { width: 54px; }
+}

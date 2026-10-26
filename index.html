@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="style.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%231f5f4a%22/%3E%3Ctext x=%2216%22 y=%2223%22 font-size=%2220%22 text-anchor=%22middle%22 fill=%22white%22 font-family=%22Arial%22 font-weight=%22bold%22%3E%E2%82%BA%3C/text%3E%3C/svg%3E">
 </head>
-<body>
+<body data-version="3">
 
 <!-- ============ GİRİŞ EKRANLARI ============ -->
 <div id="auth" class="login-wrap" hidden>
@@ -69,9 +69,8 @@
 <div class="topbar">
   <div class="brand"><span class="brand-mark">₺</span><span class="t">Pazaryeri Fiyatlandırma</span></div>
   <nav class="tabs">
-    <button class="tab active" data-view="products">Ürünler</button>
-    <button class="tab" data-view="quick">Hızlı Hesap</button>
-    <button class="tab admin-only" data-view="settings">Pazaryeri Ayarları</button>
+    <button class="tab active" data-view="calc">Fiyat Hesapla</button>
+    <button class="tab admin-only" data-view="settings">Ayarlar</button>
     <button class="tab admin-only" data-view="users">Kullanıcılar</button>
     <button class="tab" data-view="account">Hesabım</button>
   </nav>
@@ -79,57 +78,54 @@
 </div>
 
 <main>
-  <!-- ÜRÜNLER -->
-  <section class="view active" id="view-products">
-    <div class="toolbar">
-      <input class="search" id="search" placeholder="Ürün adı veya stok kodu ara…">
-      <span class="hint" id="count"></span>
-      <div class="spacer"></div>
-      <button class="btn" id="btn-paste">Excel'den yapıştır</button>
-      <button class="btn" id="btn-export">Excel'e aktar</button>
-      <button class="btn primary" id="btn-add">+ Ürün ekle</button>
+  <!-- FİYAT HESAPLA -->
+  <section class="view active" id="view-calc">
+    <div class="card card-pad calc-inputs">
+      <label class="field">Kategori<select id="c-cat"></select></label>
+      <label class="field">Desi<select id="c-desi"></select></label>
+      <label class="field big-field">Maliyet (₺)<input id="c-cost" inputmode="decimal" placeholder="0,00" autocomplete="off"></label>
+      <label class="field">KDV (%)<input id="c-vat" inputmode="decimal" value="0"></label>
+      <label class="field">Tümüne kâr (%)<input id="c-allprofit" inputmode="decimal" placeholder="—" title="Yazdığınız oran tüm pazaryerlerine uygulanır"></label>
+      <button class="btn" id="c-reset" type="button" title="Kâr oranlarını kategorinin varsayılanlarına döndür">Varsayılan kârlar</button>
     </div>
-    <div class="card table-wrap">
-      <table class="grid" id="ptable"><thead></thead><tbody></tbody></table>
-      <div class="empty" id="pempty" hidden>Henüz ürün yok. “+ Ürün ekle” ile ya da Excel'den yapıştırarak başlayın.</div>
+    <div class="card table-wrap" style="margin-top:14px">
+      <table class="grid calc-table" id="ctable">
+        <thead><tr>
+          <th class="name">Pazaryeri</th><th>Komisyon</th><th>Kargo</th><th>Hizmet</th><th class="col-profit">Kâr %</th>
+          <th>Net kâr</th><th class="col-price">Satış fiyatı</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
     </div>
-  </section>
-
-  <!-- HIZLI HESAP -->
-  <section class="view" id="view-quick">
-    <h1>Hızlı Hesap</h1>
-    <p class="sub">Ürün kaydetmeden tüm pazaryerleri için satış fiyatını görün.</p>
-    <div class="card card-pad">
-      <form class="quick-form" id="qform">
-        <label class="field">Maliyet (₺)<input name="cost" inputmode="decimal" value="100"></label>
-        <label class="field">KDV (%)<input name="vat" inputmode="decimal" value="0"></label>
-        <label class="field">Kâr (%)<input name="profit" inputmode="decimal" value="30"></label>
-        <label class="field">Kendi kargo (₺)<input name="cargo" inputmode="decimal" value="83"></label>
-        <label class="field">Komisyon (%)<input name="commission" inputmode="decimal" value="19"></label>
-        <button type="button" class="btn" id="q-save">Ürün olarak kaydet</button>
-      </form>
-    </div>
-    <div class="mp-cards" id="qcards"></div>
+    <p class="hint" style="margin-top:10px">Fiyatın üstüne tıklayınca panoya kopyalanır. Kargo sütununda kesilen kargo ve hangi baremden hesaplandığı yazar.</p>
   </section>
 
   <!-- AYARLAR -->
   <section class="view" id="view-settings">
-    <h1>Pazaryeri Ayarları</h1>
-    <p class="sub">Hizmet bedelleri ve kargo baremleri. Pazaryerleri tarifelerini değiştirdiğinde buradan güncelleyin; tüm fiyatlar anında yeniden hesaplanır.</p>
-    <div class="card card-pad" style="margin-bottom:14px; display:flex; gap:20px; align-items:end; flex-wrap:wrap">
-      <label class="field" style="width:240px">Fiyat yuvarlama
+    <div class="settings-head">
+      <div>
+        <h1>Ayarlar</h1>
+        <p class="sub" style="margin:0">Yalnızca yöneticiler görür. Değişiklikler “Kaydet” ile tüm kullanıcılara yansır.</p>
+      </div>
+      <div class="spacer"></div>
+      <label class="field" style="width:230px">Fiyat yuvarlama
         <select id="rounding">
           <option value="none">Yuvarlama yok (kuruşlu)</option>
-          <option value="90">Yukarı, ,90 ile bitir (249,90)</option>
-          <option value="99">Yukarı, ,99 ile bitir (249,99)</option>
-          <option value="whole">Yukarı, tam lira (250)</option>
+          <option value="90">Yukarı, ,90 ile bitir</option>
+          <option value="99">Yukarı, ,99 ile bitir</option>
+          <option value="whole">Yukarı, tam lira</option>
         </select>
       </label>
-      <div class="spacer"></div>
-      <button class="btn" id="mp-add">+ Pazaryeri ekle</button>
       <button class="btn primary" id="settings-save">Kaydet</button>
     </div>
-    <div class="mp-settings" id="mp-list"></div>
+    <div class="subtabs">
+      <button class="subtab active" data-sub="cats">Kategoriler (komisyon ve kâr)</button>
+      <button class="subtab" data-sub="desi">Desi kargo tablosu</button>
+      <button class="subtab" data-sub="mps">Pazaryerleri ve baremler</button>
+    </div>
+    <div class="sub-view active" id="sub-cats"></div>
+    <div class="sub-view" id="sub-desi"></div>
+    <div class="sub-view" id="sub-mps"></div>
   </section>
 
   <!-- KULLANICILAR -->
@@ -157,56 +153,6 @@
     </div>
   </section>
 </main>
-
-<!-- Ürün çekmecesi -->
-<div class="backdrop" id="backdrop"></div>
-<aside class="drawer" id="drawer">
-  <header><h2 id="d-title">Ürün</h2><button class="x" data-close>&times;</button></header>
-  <div class="body">
-    <form id="pform" style="display:grid; gap:12px">
-      <div class="field-row" style="grid-template-columns:2fr 1fr">
-        <label class="field">Ürün adı<input name="name" required></label>
-        <label class="field">Stok kodu<input name="sku"></label>
-      </div>
-      <div class="field-row">
-        <label class="field">Maliyet (₺)<input name="cost" inputmode="decimal" required></label>
-        <label class="field">KDV (%)<input name="vat" inputmode="decimal"></label>
-        <label class="field">Kâr (%)<input name="profit" inputmode="decimal"></label>
-        <label class="field">Kendi kargo (₺)<input name="cargo" inputmode="decimal"></label>
-        <label class="field">Komisyon (%)<input name="commission" inputmode="decimal"></label>
-      </div>
-    </form>
-    <div>
-      <p class="section-title">Pazaryeri fiyatları</p>
-      <p class="hint" style="margin:0 0 8px">Bir pazaryerinde komisyon farklıysa “Kom. %” sütununa yazın; boş bırakılırsa üstteki komisyon kullanılır.</p>
-      <table class="mini" id="d-breakdown"></table>
-    </div>
-    <p class="hint" id="d-meta"></p>
-  </div>
-  <footer>
-    <button class="btn danger" id="d-delete">Sil</button>
-    <div class="spacer"></div>
-    <button class="btn" data-close>Vazgeç</button>
-    <button class="btn primary" id="d-save">Kaydet</button>
-  </footer>
-</aside>
-
-<!-- Yapıştırma çekmecesi -->
-<aside class="drawer" id="paste-drawer">
-  <header><h2>Excel'den yapıştır</h2><button class="x" data-close>&times;</button></header>
-  <div class="body">
-    <p style="margin:0">Excel'de şu sırayla sütunları seçip kopyalayın ve aşağıya yapıştırın:</p>
-    <p class="badge" style="justify-self:start">Ürün adı · Maliyet · KDV · Kâr · Kargo · Komisyon · (Stok kodu)</p>
-    <p class="hint" style="margin:0">Başlık satırı varsa otomatik atlanır. Ondalık için virgül veya nokta kullanılabilir.</p>
-    <textarea id="paste-text" rows="12" placeholder="Ürün A	107,1	0	30	83	19"></textarea>
-    <div id="paste-preview" class="hint"></div>
-  </div>
-  <footer>
-    <div class="spacer"></div>
-    <button class="btn" data-close>Vazgeç</button>
-    <button class="btn primary" id="paste-save" disabled>İçe aktar</button>
-  </footer>
-</aside>
 </div>
 
 <div class="toast" id="toast"></div>
