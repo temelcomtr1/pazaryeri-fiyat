@@ -233,3 +233,5 @@ table.mini input { width: 70px; padding: 4px 6px; text-align: right; }
 .bulk-stat { display: inline-block; margin-right: 18px; }
 .bulk-stat b { font-size: 18px; }
 @media (max-width: 860px) { .bulk-steps { grid-template-columns: 1fr; } }
+.move-btns { display: flex; gap: 4px; }
+.move-btns .btn { padding: 3px 9px; }

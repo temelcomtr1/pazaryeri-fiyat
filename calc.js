@@ -136,7 +136,7 @@
   }
 
   // ===================== Sürüm 2: kategori + desi =====================
-  const MP_ORDER = ['trendyol', 'hepsiburada', 'n11', 'amazon', 'pazarama', 'ciceksepeti', 'idefix', 'koctas', 'eptt', 'passo', 'site'];
+  const MP_ORDER = ['site', 'n11', 'hepsiburada', 'trendyol', 'eptt', 'amazon', 'ciceksepeti', 'pazarama', 'koctas', 'idefix', 'passo'];
   const DESI = [2, 5, 10, 15, 20, 25, 30, 35, 40];
   // Desi kargo tablosu (desi: [2,5,10,15,20,25,30,35,40]); null = o desi için kargo yok
   const DESI_TABLE = {
@@ -184,7 +184,7 @@
       id, active: true, threshold: 0, baremMaxDesi: null, ...JSON.parse(JSON.stringify(MP_BASE[id])),
       desiCargo: Object.fromEntries(DESI.map((d, i) => [d, DESI_TABLE[id][i]])),
     })),
-    rev: 4,
+    rev: 5,
     categories: CATS.map(([id, name, c]) => ({ id, name, rates: catRates(c) })),
   };
 

@@ -1,6 +1,6 @@
 'use strict';
 // Pazaryeri Fiyatlandırma — GitHub Pages + Supabase sürümü
-const APP_VERSION = 6;
+const APP_VERSION = 8;
 
 // Beklenmeyen bir hata olursa boş ekran yerine açıklama göster
 function showFatal(msg) {
@@ -64,6 +64,7 @@ const ERR_TR = [
   [/Email not confirmed/i, 'E-posta adresiniz henüz onaylanmamış. Gelen kutunuzdaki onay bağlantısına tıklayın.'],
   [/User already registered/i, 'Bu e-posta ile zaten bir hesap var'],
   [/Password should be at least/i, 'Parola en az 8 karakter olmalı'],
+  [/email rate limit|over_email_send_rate_limit/i, 'Şu an e-posta gönderilemiyor: Supabase ücretsiz planın saatlik e-posta sınırı doldu. Bir saat sonra tekrar deneyin ya da yöneticinizden hesabınızı Supabase panelinden açmasını isteyin.'],
   [/rate limit|too many/i, 'Çok fazla deneme yapıldı, biraz sonra tekrar deneyin'],
   [/New password should be different/i, 'Yeni parola eskisinden farklı olmalı'],
   [/row-level security|permission denied/i, 'Bu işlem için yetkiniz yok'],
@@ -170,6 +171,11 @@ function normalizeSettings(s) {
   if (rev < 4) { // ePTT: maliyet 165 ₺ altı → 25 ₺ kargo
     const ptt = s.marketplaces.find((m) => m.id === 'eptt');
     if (ptt && !ptt.costRule) ptt.costRule = { maxCost: 165, cargo: 25 };
+  }
+  if (rev < 5) { // İstenen pazaryeri sırası
+    const order = def.marketplaces.map((m) => m.id);
+    const pos = (m) => { const i = order.indexOf(m.id); return i < 0 ? 999 : i; };
+    s.marketplaces = s.marketplaces.map((m, i) => [m, i]).sort((a, b) => pos(a[0]) - pos(b[0]) || a[1] - b[1]).map(([m]) => m);
   }
   s.rev = def.rev;
   return s;
@@ -575,6 +581,11 @@ function renderMps() {
           <input data-k="baremMaxDesi" inputmode="decimal" placeholder="Sınırsız" value="${numIn(m.baremMaxDesi)}"></label>
       </div>
       <div style="display:flex; flex-direction:column; gap:8px; align-items:end">
+        <div class="move-btns">
+          <button class="btn small" data-move="-1" title="Yukarı taşı" ${i === 0 ? 'disabled' : ''}>▲</button>
+          <button class="btn small" data-move="1" title="Aşağı taşı" ${i === draft.marketplaces.length - 1 ? 'disabled' : ''}>▼</button>
+        </div>
+        <span class="hint">Sıra: ${i + 1}</span>
         <label class="toggle"><input type="checkbox" data-k="active"${m.active ? ' checked' : ''}> Aktif</label>
       </div>
     </div>`).join('')}</div>
@@ -598,6 +609,18 @@ $('#sub-mps').addEventListener('input', (e) => {
 });
 $('#sub-mps').addEventListener('change', (e) => { if (e.target.type === 'checkbox' || e.target.tagName === 'SELECT') e.target.dispatchEvent(new Event('input', { bubbles: true })); });
 $('#sub-mps').addEventListener('click', (e) => {
+  const mv = e.target.closest('[data-move]');
+  if (mv) {
+    const i = Number(mv.closest('[data-i]').dataset.i); const j = i + Number(mv.dataset.move);
+    const list = draft.marketplaces;
+    if (j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    renderSettings();
+    const btn = $(`#sub-mps [data-i="${j}"] [data-move="${mv.dataset.move}"]`);
+    (btn && !btn.disabled ? btn : $(`#sub-mps [data-i="${j}"]`)).scrollIntoView({ block: 'center' });
+    if (btn && !btn.disabled) btn.focus();
+    return;
+  }
   if (e.target.id === 'mp-add') {
     const id = 'mp' + Date.now().toString(36);
     draft.marketplaces.push({ id, name: 'Yeni pazaryeri', active: true, mode: 'tiers', fee: 0, tiers: [], threshold: 0, baremMaxDesi: null,
@@ -649,6 +672,7 @@ async function loadUsers() {
     <td>
       <button class="btn small${u.active ? '' : ' primary'}" data-act="active">${u.active ? 'Pasifleştir' : 'Onayla / aktifleştir'}</button>
       <button class="btn small" data-act="role">${u.role === 'admin' ? 'Kullanıcı yap' : 'Yönetici yap'}</button>
+      <button class="btn small" data-act="name">Adı düzenle</button>
       <button class="btn small" data-act="pw">Parola sıfırlama e-postası</button>
     </td></tr>`).join('');
 }
@@ -658,6 +682,13 @@ $('#utable').addEventListener('click', async (e) => {
   try {
     if (act === 'active') await data.updateUser(u.id, { active: !u.active });
     else if (act === 'role') await data.updateUser(u.id, { role: u.role === 'admin' ? 'user' : 'admin' });
+    else if (act === 'name') {
+      const name = prompt(`${u.email} için ad soyad:`, u.name);
+      if (name === null || !name.trim() || name.trim() === u.name) return;
+      await data.updateUser(u.id, { name: name.trim() });
+      if (u.id === state.me.id) { state.me.name = name.trim(); $('#who').textContent = state.me.name; }
+      toast('Ad güncellendi');
+    }
     else if (act === 'pw') {
       if (!confirm(`${u.email} adresine parola yenileme bağlantısı gönderilsin mi?`)) return;
       must(await sb.auth.resetPasswordForEmail(u.email, { redirectTo: PAGE_URL }));
