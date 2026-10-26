@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pazaryeri Fiyatlandırma</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%231f5f4a%22/%3E%3Ctext x=%2216%22 y=%2223%22 font-size=%2220%22 text-anchor=%22middle%22 fill=%22white%22 font-family=%22Arial%22 font-weight=%22bold%22%3E%E2%82%BA%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+
+<!-- ============ GİRİŞ EKRANLARI ============ -->
+<div id="auth" class="login-wrap" hidden>
+  <div class="card login">
+    <div class="brand" style="color:var(--ink)"><span class="brand-mark">₺</span> Pazaryeri Fiyatlandırma</div>
+
+    <form id="f-login" class="auth-form">
+      <label class="field">E-posta<input name="email" type="email" autocomplete="email" required></label>
+      <label class="field">Parola<input name="password" type="password" autocomplete="current-password" required></label>
+      <div class="err-msg"></div>
+      <button class="btn primary" style="justify-content:center">Giriş yap</button>
+      <div class="auth-links"><a href="#" data-go="f-forgot">Parolamı unuttum</a><a href="#" data-go="f-signup">Hesap oluştur</a></div>
+    </form>
+
+    <form id="f-signup" class="auth-form" hidden>
+      <label class="field">Ad Soyad<input name="name" required autocomplete="name"></label>
+      <label class="field">E-posta<input name="email" type="email" autocomplete="email" required></label>
+      <label class="field">Parola (en az 8 karakter)<input name="password" type="password" minlength="8" autocomplete="new-password" required></label>
+      <div class="err-msg"></div>
+      <button class="btn primary" style="justify-content:center">Hesap oluştur</button>
+      <p class="hint" style="margin:0">Hesabınız yönetici onayından sonra kullanılabilir.</p>
+      <div class="auth-links"><a href="#" data-go="f-login">← Girişe dön</a></div>
+    </form>
+
+    <form id="f-forgot" class="auth-form" hidden>
+      <p style="margin:0">E-posta adresinizi yazın, parola yenileme bağlantısı gönderelim.</p>
+      <label class="field">E-posta<input name="email" type="email" autocomplete="email" required></label>
+      <div class="err-msg"></div>
+      <button class="btn primary" style="justify-content:center">Bağlantı gönder</button>
+      <div class="auth-links"><a href="#" data-go="f-login">← Girişe dön</a></div>
+    </form>
+
+    <form id="f-newpass" class="auth-form" hidden>
+      <p style="margin:0"><b>Yeni parolanızı belirleyin</b></p>
+      <label class="field">Yeni parola (en az 8 karakter)<input name="password" type="password" minlength="8" autocomplete="new-password" required></label>
+      <div class="err-msg"></div>
+      <button class="btn primary" style="justify-content:center">Parolayı kaydet</button>
+    </form>
+
+    <div id="f-pending" class="auth-form" hidden>
+      <p style="margin:0"><b>Hesabınız onay bekliyor</b></p>
+      <p class="hint" style="margin:0" id="pending-text">Yönetici hesabınızı aktifleştirdiğinde giriş yapabileceksiniz.</p>
+      <button class="btn" id="pending-logout" style="justify-content:center">Çıkış yap</button>
+    </div>
+
+    <div id="f-msg" class="auth-form" hidden>
+      <p style="margin:0" id="msg-text"></p>
+      <div class="auth-links"><a href="#" data-go="f-login">← Girişe dön</a></div>
+    </div>
+
+    <div id="f-config" class="auth-form" hidden>
+      <div class="notice">Supabase bağlantısı henüz ayarlanmamış. <b>config.js</b> dosyasına Project URL ve anon anahtarını yazın.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ UYGULAMA ============ -->
+<div id="app" hidden>
+<div class="topbar">
+  <div class="brand"><span class="brand-mark">₺</span><span class="t">Pazaryeri Fiyatlandırma</span></div>
+  <nav class="tabs">
+    <button class="tab active" data-view="products">Ürünler</button>
+    <button class="tab" data-view="quick">Hızlı Hesap</button>
+    <button class="tab admin-only" data-view="settings">Pazaryeri Ayarları</button>
+    <button class="tab admin-only" data-view="users">Kullanıcılar</button>
+    <button class="tab" data-view="account">Hesabım</button>
+  </nav>
+  <div class="user-box"><span class="who" id="who"></span><button id="logout">Çıkış</button></div>
+</div>
+
+<main>
+  <!-- ÜRÜNLER -->
+  <section class="view active" id="view-products">
+    <div class="toolbar">
+      <input class="search" id="search" placeholder="Ürün adı veya stok kodu ara…">
+      <span class="hint" id="count"></span>
+      <div class="spacer"></div>
+      <button class="btn" id="btn-paste">Excel'den yapıştır</button>
+      <button class="btn" id="btn-export">Excel'e aktar</button>
+      <button class="btn primary" id="btn-add">+ Ürün ekle</button>
+    </div>
+    <div class="card table-wrap">
+      <table class="grid" id="ptable"><thead></thead><tbody></tbody></table>
+      <div class="empty" id="pempty" hidden>Henüz ürün yok. “+ Ürün ekle” ile ya da Excel'den yapıştırarak başlayın.</div>
+    </div>
+  </section>
+
+  <!-- HIZLI HESAP -->
+  <section class="view" id="view-quick">
+    <h1>Hızlı Hesap</h1>
+    <p class="sub">Ürün kaydetmeden tüm pazaryerleri için satış fiyatını görün.</p>
+    <div class="card card-pad">
+      <form class="quick-form" id="qform">
+        <label class="field">Maliyet (₺)<input name="cost" inputmode="decimal" value="100"></label>
+        <label class="field">KDV (%)<input name="vat" inputmode="decimal" value="0"></label>
+        <label class="field">Kâr (%)<input name="profit" inputmode="decimal" value="30"></label>
+        <label class="field">Kendi kargo (₺)<input name="cargo" inputmode="decimal" value="83"></label>
+        <label class="field">Komisyon (%)<input name="commission" inputmode="decimal" value="19"></label>
+        <button type="button" class="btn" id="q-save">Ürün olarak kaydet</button>
+      </form>
+    </div>
+    <div class="mp-cards" id="qcards"></div>
+  </section>
+
+  <!-- AYARLAR -->
+  <section class="view" id="view-settings">
+    <h1>Pazaryeri Ayarları</h1>
+    <p class="sub">Hizmet bedelleri ve kargo baremleri. Pazaryerleri tarifelerini değiştirdiğinde buradan güncelleyin; tüm fiyatlar anında yeniden hesaplanır.</p>
+    <div class="card card-pad" style="margin-bottom:14px; display:flex; gap:20px; align-items:end; flex-wrap:wrap">
+      <label class="field" style="width:240px">Fiyat yuvarlama
+        <select id="rounding">
+          <option value="none">Yuvarlama yok (kuruşlu)</option>
+          <option value="90">Yukarı, ,90 ile bitir (249,90)</option>
+          <option value="99">Yukarı, ,99 ile bitir (249,99)</option>
+          <option value="whole">Yukarı, tam lira (250)</option>
+        </select>
+      </label>
+      <div class="spacer"></div>
+      <button class="btn" id="mp-add">+ Pazaryeri ekle</button>
+      <button class="btn primary" id="settings-save">Kaydet</button>
+    </div>
+    <div class="mp-settings" id="mp-list"></div>
+  </section>
+
+  <!-- KULLANICILAR -->
+  <section class="view" id="view-users">
+    <h1>Kullanıcılar</h1>
+    <p class="sub">Çalışanlar giriş ekranındaki “Hesap oluştur” ile kendi e-postalarıyla kaydolur. Buradan onaylayıp aktifleştirirsiniz.</p>
+    <div class="card table-wrap">
+      <table class="grid" id="utable">
+        <thead><tr><th class="name">Ad Soyad</th><th style="text-align:left">E-posta</th><th style="text-align:left">Yetki</th><th style="text-align:left">Durum</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- HESABIM -->
+  <section class="view" id="view-account">
+    <h1>Hesabım</h1>
+    <p class="sub" id="acc-sub"></p>
+    <div class="card card-pad" style="max-width:420px">
+      <p class="section-title">Parola değiştir</p>
+      <form id="pwform" style="display:grid; gap:12px">
+        <label class="field">Yeni parola (en az 8)<input name="next" type="password" minlength="8" required autocomplete="new-password"></label>
+        <button class="btn primary">Parolayı değiştir</button>
+      </form>
+    </div>
+  </section>
+</main>
+
+<!-- Ürün çekmecesi -->
+<div class="backdrop" id="backdrop"></div>
+<aside class="drawer" id="drawer">
+  <header><h2 id="d-title">Ürün</h2><button class="x" data-close>&times;</button></header>
+  <div class="body">
+    <form id="pform" style="display:grid; gap:12px">
+      <div class="field-row" style="grid-template-columns:2fr 1fr">
+        <label class="field">Ürün adı<input name="name" required></label>
+        <label class="field">Stok kodu<input name="sku"></label>
+      </div>
+      <div class="field-row">
+        <label class="field">Maliyet (₺)<input name="cost" inputmode="decimal" required></label>
+        <label class="field">KDV (%)<input name="vat" inputmode="decimal"></label>
+        <label class="field">Kâr (%)<input name="profit" inputmode="decimal"></label>
+        <label class="field">Kendi kargo (₺)<input name="cargo" inputmode="decimal"></label>
+        <label class="field">Komisyon (%)<input name="commission" inputmode="decimal"></label>
+      </div>
+    </form>
+    <div>
+      <p class="section-title">Pazaryeri fiyatları</p>
+      <p class="hint" style="margin:0 0 8px">Bir pazaryerinde komisyon farklıysa “Kom. %” sütununa yazın; boş bırakılırsa üstteki komisyon kullanılır.</p>
+      <table class="mini" id="d-breakdown"></table>
+    </div>
+    <p class="hint" id="d-meta"></p>
+  </div>
+  <footer>
+    <button class="btn danger" id="d-delete">Sil</button>
+    <div class="spacer"></div>
+    <button class="btn" data-close>Vazgeç</button>
+    <button class="btn primary" id="d-save">Kaydet</button>
+  </footer>
+</aside>
+
+<!-- Yapıştırma çekmecesi -->
+<aside class="drawer" id="paste-drawer">
+  <header><h2>Excel'den yapıştır</h2><button class="x" data-close>&times;</button></header>
+  <div class="body">
+    <p style="margin:0">Excel'de şu sırayla sütunları seçip kopyalayın ve aşağıya yapıştırın:</p>
+    <p class="badge" style="justify-self:start">Ürün adı · Maliyet · KDV · Kâr · Kargo · Komisyon · (Stok kodu)</p>
+    <p class="hint" style="margin:0">Başlık satırı varsa otomatik atlanır. Ondalık için virgül veya nokta kullanılabilir.</p>
+    <textarea id="paste-text" rows="12" placeholder="Ürün A	107,1	0	30	83	19"></textarea>
+    <div id="paste-preview" class="hint"></div>
+  </div>
+  <footer>
+    <div class="spacer"></div>
+    <button class="btn" data-close>Vazgeç</button>
+    <button class="btn primary" id="paste-save" disabled>İçe aktar</button>
+  </footer>
+</aside>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="calc.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
