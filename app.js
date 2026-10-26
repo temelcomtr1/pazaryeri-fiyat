@@ -1,6 +1,6 @@
 'use strict';
 // Pazaryeri Fiyatlandırma — GitHub Pages + Supabase sürümü
-const APP_VERSION = 5;
+const APP_VERSION = 6;
 
 // Beklenmeyen bir hata olursa boş ekran yerine açıklama göster
 function showFatal(msg) {
@@ -151,6 +151,7 @@ function showView(name) {
   if (name === 'users') loadUsers();
   if (name === 'settings') renderSettings();
   if (name === 'calc') renderCalc();
+  if (name === 'bulk') { fillBulkSelectors(); renderBulk(); }
 }
 $$('.tab').forEach((t) => t.addEventListener('click', () => showView(t.dataset.view)));
 $('#logout').addEventListener('click', logout);
@@ -255,6 +256,189 @@ $('#ctable').addEventListener('click', async (e) => {
   const txt = td.dataset.price.replace('.', ',');
   try { await navigator.clipboard.writeText(txt); toast(`${txt} kopyalandı`); } catch { toast(txt); }
 });
+
+// ================= Toplu hesapla =================
+const trNorm = (s) => String(s ?? '').toLocaleLowerCase('tr')
+  .replace(/ı/g, 'i').replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ş/g, 's').replace(/ö/g, 'o').replace(/ç/g, 'c').replace(/â/g, 'a')
+  .replace(/[^a-z0-9]+/g, ' ').trim();
+const HEADER_KEYS = [
+  ['sku', ['stok kodu', 'stok kod', 'stok', 'sku', 'barkod', 'urun kodu', 'kod', 'model kodu']],
+  ['name', ['urun adi', 'urun', 'urun ismi', 'ad', 'adi', 'isim', 'aciklama']],
+  ['category', ['kategori', 'kategori adi', 'grup']],
+  ['desi', ['desi']],
+  ['cost', ['maliyet', 'alis', 'alis fiyati', 'maliyet tl', 'birim maliyet']],
+  ['profit', ['kar', 'kar orani', 'kar yuzde', 'kar %']],
+  ['vat', ['kdv', 'kdv orani']],
+];
+const bulk = { rows: null, fileName: '' };
+
+function fillBulkSelectors() {
+  const s = state.settings;
+  const prevC = $('#b-defcat').value; const prevD = $('#b-defdesi').value;
+  $('#b-defcat').innerHTML = '<option value="">— Hata olarak işaretle —</option>' +
+    s.categories.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
+  $('#b-defdesi').innerHTML = '<option value="">— Hata olarak işaretle —</option>' +
+    s.desi.slice().sort((a, b) => a - b).map((d) => `<option value="${d}">${fmtIn(d)} desi</option>`).join('');
+  $('#b-defcat').value = prevC; $('#b-defdesi').value = prevD || String(Math.min(...s.desi));
+  $('#b-catlist').innerHTML = 'Kategori sütununa adın tamamı, ilk kelimesi ya da sıra numarası yazılabilir: ' +
+    s.categories.map((c, i) => `<b>${i + 1}</b> = ${esc(c.name)}`).join(' · ');
+}
+
+function matchCategory(v) {
+  const cats = state.settings.categories;
+  if (v === null || v === undefined || String(v).trim() === '') return null;
+  const n = Number(String(v).trim());
+  if (Number.isInteger(n) && n >= 1 && n <= cats.length) return cats[n - 1];
+  const q = trNorm(v);
+  const exact = cats.filter((c) => trNorm(c.name) === q || trNorm(c.id) === q);
+  if (exact.length === 1) return exact[0];
+  const part = cats.filter((c) => trNorm(c.name).startsWith(q) || c.name.split(/[-–\/,]/).some((seg) => trNorm(seg) === q));
+  if (part.length === 1) return part[0];
+  const loose = cats.filter((c) => trNorm(c.name).includes(q) || q.includes(trNorm(c.name)));
+  return loose.length === 1 ? loose[0] : undefined; // undefined = bulunamadı/belirsiz
+}
+
+function mapHeaders(header) {
+  const map = {};
+  header.forEach((h, i) => {
+    const k = trNorm(h);
+    if (!k) return;
+    for (const [key, names] of HEADER_KEYS) {
+      if (map[key] === undefined && names.includes(k)) { map[key] = i; return; }
+    }
+  });
+  // "kâr" başlığı tek başına "kar" olur; "kar %" gibi varyasyonlar için ek kontrol
+  header.forEach((h, i) => { const k = trNorm(h); if (map.profit === undefined && /^kar\b/.test(k)) map.profit = i; });
+  return map;
+}
+
+async function loadBulkFile(file) {
+  if (!file) return;
+  try {
+    let rows;
+    if (/\.csv$/i.test(file.name)) rows = XLSX.readCsv(await file.text());
+    else rows = await XLSX.read(await file.arrayBuffer());
+    rows = rows.filter((r) => r && r.some((v) => v !== null && v !== undefined && String(v).trim() !== ''));
+    if (rows.length < 2) throw new Error('Dosyada başlık satırı ve en az bir ürün olmalı');
+    // Başlık satırını bul (ilk 10 satırda "maliyet" geçen satır)
+    let hi = rows.slice(0, 10).findIndex((r) => r.some((v) => ['maliyet', 'alis', 'alis fiyati', 'birim maliyet', 'maliyet tl'].includes(trNorm(v))));
+    if (hi < 0) throw new Error('“Maliyet” başlıklı sütun bulunamadı. Şablondaki başlıkları kullanın.');
+    const map = mapHeaders(rows[hi]);
+    bulk.map = map; bulk.header = rows[hi]; bulk.rows = rows.slice(hi + 1); bulk.fileName = file.name.replace(/\.(xlsx|csv)$/i, '');
+    renderBulk();
+  } catch (e) {
+    bulk.rows = null; $('#b-result').hidden = true;
+    toast(e.message || 'Dosya okunamadı', true);
+  }
+}
+
+function computeBulk() {
+  const s = state.settings; const map = bulk.map;
+  const mps = s.marketplaces.filter((m) => m.active);
+  const defCat = s.categories.find((c) => c.id === $('#b-defcat').value) || null;
+  const defDesi = parseNum($('#b-defdesi').value);
+  const maxDesi = Math.max(...s.desi);
+  const get = (r, k) => (map[k] === undefined ? null : r[map[k]]);
+  const blank = (v) => v === null || v === undefined || String(v).trim() === '';
+  return bulk.rows.map((r) => {
+    const out = { sku: get(r, 'sku') ?? '', name: get(r, 'name') ?? '', notes: [], prices: {}, profits: {} };
+    const cost = typeof get(r, 'cost') === 'number' ? get(r, 'cost') : parseNum(get(r, 'cost'));
+    const rawCat = get(r, 'category');
+    let cat = blank(rawCat) ? defCat : matchCategory(rawCat);
+    if (!cat) out.notes.push(blank(rawCat) ? 'Kategori boş' : `Kategori bulunamadı: “${rawCat}”`);
+    const rawDesi = get(r, 'desi');
+    const desi = blank(rawDesi) ? defDesi : (typeof rawDesi === 'number' ? rawDesi : parseNum(rawDesi));
+    if (!(desi > 0)) out.notes.push(blank(rawDesi) ? 'Desi boş' : `Desi okunamadı: “${rawDesi}”`);
+    else if (desi > maxDesi) out.notes.push(`Desi ${maxDesi}'tan büyük`);
+    if (!(cost > 0)) out.notes.push(blank(get(r, 'cost')) ? 'Maliyet boş' : 'Maliyet geçersiz');
+    const rawProfit = get(r, 'profit');
+    const profitAll = blank(rawProfit) ? NaN : (typeof rawProfit === 'number' ? rawProfit : parseNum(rawProfit));
+    const rawVat = get(r, 'vat');
+    const vat = blank(rawVat) ? 0 : (typeof rawVat === 'number' ? rawVat : parseNum(rawVat)) || 0;
+    out.cost = cost; out.desi = desi; out.cat = cat; out.vat = vat;
+    out.profit = Number.isFinite(profitAll) ? profitAll : null;
+    if (out.notes.length) { out.error = true; return out; }
+    const profits = Number.isFinite(profitAll) ? Object.fromEntries(mps.map((m) => [m.id, profitAll])) : {};
+    const res = Calc.computeAll(s, { categoryId: cat.id, desi, cost, vat, profits });
+    const missing = [];
+    for (const x of res) {
+      if (x.unavailable || !x.result || x.result.error) { missing.push(x.mp.name); continue; }
+      out.prices[x.mp.id] = Math.round(x.result.price * 100) / 100;
+      out.profits[x.mp.id] = Math.round(x.result.netProfit * 100) / 100;
+    }
+    if (missing.length) out.notes.push(`Bu desi için kargo yok: ${missing.join(', ')}`);
+    return out;
+  });
+}
+
+function renderBulk() {
+  if (!bulk.rows) return;
+  const s = state.settings; const mps = s.marketplaces.filter((m) => m.active);
+  const res = computeBulk(); bulk.result = res;
+  const errs = res.filter((r) => r.error).length;
+  const warn = res.filter((r) => !r.error && r.notes.length).length;
+  const missingCols = ['cost', 'category', 'desi'].filter((k) => bulk.map[k] === undefined)
+    .map((k) => ({ cost: 'Maliyet', category: 'Kategori', desi: 'Desi' }[k]));
+  $('#b-summary').innerHTML = `<span class="bulk-stat"><b>${res.length.toLocaleString('tr-TR')}</b> ürün</span>
+    <span class="bulk-stat" style="color:var(--good)"><b>${(res.length - errs).toLocaleString('tr-TR')}</b> hesaplandı</span>
+    ${errs ? `<span class="bulk-stat" style="color:var(--bad)"><b>${errs.toLocaleString('tr-TR')}</b> hatalı</span>` : ''}
+    ${warn ? `<span class="bulk-stat" style="color:var(--warn)"><b>${warn.toLocaleString('tr-TR')}</b> uyarılı</span>` : ''}
+    ${missingCols.length ? `<div class="hint" style="color:var(--warn)">Dosyada bulunamayan sütun: ${missingCols.join(', ')}${missingCols.includes('Maliyet') ? '' : ' — boş kabul edildi, yukarıdaki varsayılanlar kullanılıyor'}</div>` : ''}`;
+  const preview = res.filter((r) => r.error).slice(0, 10).concat(res.filter((r) => !r.error).slice(0, 20));
+  $('#b-preview').innerHTML = `<thead><tr><th class="name">Ürün</th><th>Kategori</th><th>Desi</th><th>Maliyet</th>${mps.map((m) => `<th>${esc(m.name)}</th>`).join('')}<th style="text-align:left">Not</th></tr></thead>
+    <tbody>${preview.map((r) => `<tr>
+      <td class="name">${esc(r.name || r.sku || '—')}${r.sku && r.name ? `<br><span class="sku">${esc(r.sku)}</span>` : ''}</td>
+      <td style="text-align:left">${r.cat ? esc(r.cat.name.split('-')[0]) : '—'}</td>
+      <td class="num">${Number.isFinite(r.desi) ? fmtIn(r.desi) : '—'}</td>
+      <td class="num">${money(r.cost)}</td>
+      ${mps.map((m) => `<td class="num">${r.prices[m.id] !== undefined ? money(r.prices[m.id]) : '—'}</td>`).join('')}
+      <td class="${r.notes.length ? 'err' : ''}">${esc(r.notes.join(' · '))}</td></tr>`).join('')}</tbody>`;
+  $('#b-result').hidden = false;
+  $('#b-download').textContent = `Excel olarak indir (${res.length.toLocaleString('tr-TR')} ürün)`;
+}
+
+function downloadBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+$('#b-download').addEventListener('click', () => {
+  const s = state.settings; const mps = s.marketplaces.filter((m) => m.active);
+  const withProfit = $('#b-profitcols').checked;
+  const head = ['Stok Kodu', 'Ürün Adı', 'Kategori', 'Desi', 'Maliyet', 'Kâr % (girilen)', ...mps.map((m) => `${m.name} Fiyat`)];
+  if (withProfit) head.push(...mps.map((m) => `${m.name} Net Kâr`));
+  head.push('Not');
+  const moneyCols = new Set(); [4, ...mps.map((_, i) => 6 + i), ...(withProfit ? mps.map((_, i) => 6 + mps.length + i) : [])].forEach((i) => moneyCols.add(i));
+  const rows = [head, ...bulk.result.map((r) => {
+    const row = [r.sku, r.name, r.cat ? r.cat.name : '', Number.isFinite(r.desi) ? r.desi : '', Number.isFinite(r.cost) ? r.cost : '', r.profit ?? '',
+      ...mps.map((m) => r.prices[m.id] ?? '')];
+    if (withProfit) row.push(...mps.map((m) => r.profits[m.id] ?? ''));
+    row.push(r.notes.join(' · '));
+    return row;
+  })];
+  const widths = [16, 40, 28, 7, 11, 10, ...mps.map(() => 13), ...(withProfit ? mps.map(() => 13) : []), 40];
+  const date = new Date().toISOString().slice(0, 10);
+  downloadBlob(XLSX.write(rows, { sheetName: 'Fiyatlar', widths, money: moneyCols }), `${bulk.fileName || 'urunler'}-fiyatlar-${date}.xlsx`);
+});
+
+$('#b-template').addEventListener('click', () => {
+  const c = state.settings.categories;
+  const rows = [
+    ['Stok Kodu', 'Ürün Adı', 'Kategori', 'Desi', 'Maliyet', 'Kâr %', 'KDV %'],
+    ['ORNEK-001', 'Örnek ürün (bu satırları silin)', c[0] ? c[0].name : '', 2, 107.1, '', ''],
+    ['ORNEK-002', 'Kâr oranı elle verilen ürün', c[1] ? 2 : 1, 5, 250, 25, ''],
+  ];
+  downloadBlob(XLSX.write(rows, { sheetName: 'Ürünler', widths: [16, 40, 30, 7, 11, 8, 8], money: new Set([4]) }), 'toplu-hesap-sablonu.xlsx');
+});
+
+$('#b-file').addEventListener('change', (e) => { loadBulkFile(e.target.files[0]); e.target.value = ''; });
+const drop = $('#b-drop');
+['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', (e) => loadBulkFile(e.dataTransfer.files[0]));
+['#b-defcat', '#b-defdesi'].forEach((id) => $(id).addEventListener('change', renderBulk));
 
 // ================= Ayarlar (yönetici) =================
 let draft = null;

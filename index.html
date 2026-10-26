@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="style.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%231f5f4a%22/%3E%3Ctext x=%2216%22 y=%2223%22 font-size=%2220%22 text-anchor=%22middle%22 fill=%22white%22 font-family=%22Arial%22 font-weight=%22bold%22%3E%E2%82%BA%3C/text%3E%3C/svg%3E">
 </head>
-<body data-version="5">
+<body data-version="6">
 
 <!-- ============ GİRİŞ EKRANLARI ============ -->
 <div id="auth" class="login-wrap" hidden>
@@ -70,6 +70,7 @@
   <div class="brand"><span class="brand-mark">₺</span><span class="t">Pazaryeri Fiyatlandırma</span></div>
   <nav class="tabs">
     <button class="tab active" data-view="calc">Fiyat Hesapla</button>
+    <button class="tab" data-view="bulk">Toplu Hesapla</button>
     <button class="tab admin-only" data-view="settings">Ayarlar</button>
     <button class="tab admin-only" data-view="users">Kullanıcılar</button>
     <button class="tab" data-view="account">Hesabım</button>
@@ -98,6 +99,39 @@
       </table>
     </div>
     <p class="hint" style="margin-top:10px">Fiyatın üstüne tıklayınca panoya kopyalanır. Kargo sütununda kesilen kargo ve hangi baremden hesaplandığı yazar.</p>
+  </section>
+
+  <!-- TOPLU HESAPLA -->
+  <section class="view" id="view-bulk">
+    <h1>Toplu Hesapla</h1>
+    <p class="sub">Ürün listenizi Excel olarak yükleyin, tüm pazaryeri fiyatları hesaplanmış Excel'i indirin. Dosya bilgisayarınızda işlenir, sunucuya gönderilmez.</p>
+    <div class="bulk-steps">
+      <div class="card card-pad">
+        <p class="section-title">1. Şablon</p>
+        <p style="margin:0 0 12px">Sütunlar: <b>Stok Kodu · Ürün Adı · Kategori · Desi · Maliyet</b> ve isteğe bağlı <b>Kâr % · KDV %</b>. Kendi Excel'inizde aynı başlıklar varsa şablona gerek yok, sütun sırası önemli değil.</p>
+        <button class="btn" id="b-template">Şablonu indir (.xlsx)</button>
+        <p class="hint" style="margin:12px 0 0" id="b-catlist"></p>
+      </div>
+      <div class="card card-pad">
+        <p class="section-title">2. Dosyayı yükleyin</p>
+        <label class="dropzone" id="b-drop">
+          <input type="file" id="b-file" accept=".xlsx,.csv" hidden>
+          <span><b>Dosya seçin</b> ya da buraya sürükleyin<br><span class="hint">.xlsx veya .csv</span></span>
+        </label>
+        <div class="field-row" style="margin-top:12px">
+          <label class="field">Kategori boşsa<select id="b-defcat"></select></label>
+          <label class="field">Desi boşsa<select id="b-defdesi"></select></label>
+        </div>
+        <label class="toggle" style="margin-top:12px"><input type="checkbox" id="b-profitcols"> Net kâr sütunlarını da ekle</label>
+      </div>
+    </div>
+    <div class="card card-pad" id="b-result" hidden style="margin-top:14px">
+      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap">
+        <div id="b-summary" style="flex:1"></div>
+        <button class="btn primary" id="b-download">Excel olarak indir</button>
+      </div>
+      <div class="table-wrap" style="margin-top:12px; max-height:420px"><table class="grid" id="b-preview"></table></div>
+    </div>
   </section>
 
   <!-- AYARLAR -->
@@ -158,6 +192,7 @@
 <div class="toast" id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script src="config.js"></script>
+<script src="xlsx.js"></script>
 <script src="calc.js"></script>
 <script src="app.js"></script>
 </body>

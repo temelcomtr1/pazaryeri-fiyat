@@ -223,3 +223,13 @@ table.mini input { width: 70px; padding: 4px 6px; text-align: right; }
   .calc-table td, .calc-table th { padding: 8px 6px; }
   .calc-table input.profit-in { width: 54px; }
 }
+
+/* ---- Toplu hesapla ---- */
+.bulk-steps { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.dropzone { display: grid; place-items: center; text-align: center; min-height: 110px; border: 2px dashed var(--line); border-radius: 10px; cursor: pointer; padding: 16px; background: var(--surface-2); }
+.dropzone:hover, .dropzone.over { border-color: var(--accent); background: var(--accent-soft); }
+#b-preview td.err { color: var(--bad); text-align: left; white-space: normal; min-width: 220px; }
+#b-preview tbody tr { cursor: default; }
+.bulk-stat { display: inline-block; margin-right: 18px; }
+.bulk-stat b { font-size: 18px; }
+@media (max-width: 860px) { .bulk-steps { grid-template-columns: 1fr; } }
