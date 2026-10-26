@@ -16,7 +16,7 @@ const parseNum = (v) => {
 };
 const fmtIn = (n) => (Number.isFinite(n) ? String(n).replace('.', ',') : '');
 
-const state = { me: null, settings: null, products: [], users: [], editing: null };
+const state = { me: null, settings: null, users: [] };
 
 let toastTimer;
 function toast(msg, err = false) {
@@ -57,21 +57,6 @@ const trErr = (e) => {
   return m;
 };
 const must = ({ data, error }) => { if (error) throw new Error(trErr(error)); return data; };
-const normProduct = (p) => ({
-  ...p, cost: Number(p.cost), vat: Number(p.vat), profit: Number(p.profit), cargo: Number(p.cargo),
-  commission: Number(p.commission), overrides: p.overrides || {},
-});
-const productCols = (d) => ({
-  name: d.name, sku: d.sku || '', cost: d.cost, vat: d.vat || 0, profit: d.profit || 0,
-  cargo: d.cargo || 0, commission: d.commission || 0, overrides: d.overrides || {},
-});
-function checkProduct(d) {
-  if (!d.name) throw new Error('Ürün adı gerekli');
-  if (!(d.cost > 0)) throw new Error('Maliyet 0\'dan büyük olmalı');
-  for (const k of ['vat', 'profit', 'cargo', 'commission']) if (!Number.isFinite(d[k]) || d[k] < 0) throw new Error('Sayısal alanlar geçersiz');
-  if (d.commission >= 100) throw new Error('Komisyon %100\'den küçük olmalı');
-}
-
 const data = {
   async profile() {
     const { data: { user } } = await sb.auth.getUser();
@@ -85,29 +70,6 @@ const data = {
     const rows = must(await sb.from('settings').update({ value: s }).eq('key', 'pricing').select('value'));
     if (!rows.length) throw new Error('Bu işlem için yetkiniz yok');
     return rows[0].value;
-  },
-  async products() {
-    const all = []; const page = 1000;
-    for (let from = 0; ; from += page) {
-      const rows = must(await sb.from('products').select('*').order('name').range(from, from + page - 1));
-      all.push(...rows);
-      if (rows.length < page) break;
-    }
-    return all.map(normProduct).sort((a, b) => a.name.localeCompare(b.name, 'tr'));
-  },
-  async addProduct(d) {
-    checkProduct(d);
-    return normProduct(must(await sb.from('products').insert(productCols(d)).select().single()));
-  },
-  async updateProduct(id, d) {
-    checkProduct(d);
-    return normProduct(must(await sb.from('products').update(productCols(d)).eq('id', id).select().single()));
-  },
-  async deleteProduct(id) { must(await sb.from('products').delete().eq('id', id)); },
-  async bulkAdd(items) {
-    items.forEach(checkProduct);
-    for (let i = 0; i < items.length; i += 500) must(await sb.from('products').insert(items.slice(i, i + 500).map(productCols)));
-    return items.length;
   },
   async users() { return must(await sb.from('profiles').select('*').order('created_at')); },
   async updateUser(id, patch) {
@@ -163,288 +125,296 @@ authSubmit('f-newpass', async ({ password }) => {
 async function logout() { await sb.auth.signOut(); state.me = null; showAuth('f-login'); }
 $('#pending-logout').addEventListener('click', logout);
 
-// ---------------- Sekmeler ----------------
+// ================= Sekmeler =================
 function showView(name) {
   $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === name));
   $$('.view').forEach((v) => v.classList.toggle('active', v.id === 'view-' + name));
   if (name === 'users') loadUsers();
   if (name === 'settings') renderSettings();
-  if (name === 'quick') renderQuick();
+  if (name === 'calc') renderCalc();
 }
 $$('.tab').forEach((t) => t.addEventListener('click', () => showView(t.dataset.view)));
 $('#logout').addEventListener('click', logout);
 
-// ---------------- Ürünler ----------------
-function renderProducts() {
-  const mps = activeMps();
-  const q = $('#search').value.trim().toLocaleLowerCase('tr');
-  const list = state.products.filter((p) => !q || p.name.toLocaleLowerCase('tr').includes(q) || (p.sku || '').toLocaleLowerCase('tr').includes(q));
-
-  $('#ptable thead').innerHTML = `<tr>
-    <th class="name">Ürün</th><th>Maliyet</th><th>KDV</th><th>Kâr</th><th>Kargo</th><th>Kom.</th>
-    ${mps.map((m, i) => `<th class="group${i === 0 ? ' sep' : ''}">${esc(m.name)}</th>`).join('')}
-  </tr>`;
-  $('#ptable tbody').innerHTML = list.map((p) => `<tr data-id="${p.id}">
-    <td class="name" title="${esc(p.name)}">${esc(p.name)}${p.sku ? `<br><span class="sku">${esc(p.sku)}</span>` : ''}</td>
-    <td class="num input-col">${money(p.cost)}</td>
-    <td class="num input-col">%${pctf.format(p.vat)}</td>
-    <td class="num input-col">%${pctf.format(p.profit)}</td>
-    <td class="num input-col">${money(p.cargo)}</td>
-    <td class="num input-col">%${pctf.format(p.commission)}</td>
-    ${mps.map((m, i) => {
-      const b = priceFor(p, m);
-      if (b.error) return `<td class="${i === 0 ? 'sep' : ''}">—</td>`;
-      return `<td class="${i === 0 ? 'sep' : ''}" title="${esc(b.tier)}"><span class="price">${money(b.price)}</span>
-        <span class="pct ${pctClass(b, p.profit)}">%${pctf.format(b.profitPct)} kâr${b.overridden ? ' <span class="ov">●</span>' : ''}</span></td>`;
-    }).join('')}
-  </tr>`).join('');
-  $('#pempty').hidden = state.products.length > 0;
-  $('#count').textContent = state.products.length ? `${list.length} / ${state.products.length} ürün` : '';
+// Eski ayar biçimi (sürüm 1) veritabanında duruyorsa yeni varsayılanlar kullanılır
+function normalizeSettings(s) {
+  const def = Calc.DEFAULT_SETTINGS_V2;
+  if (!s || s.version !== 2 || !Array.isArray(s.categories) || !s.categories.length) return structuredClone(def);
+  // Kategori listesi güncellendiyse (rev) yeni kategoriler alınır
+  if ((s.rev || 1) < def.rev) { s.categories = structuredClone(def.categories); s.rev = def.rev; }
+  return s;
 }
-$('#search').addEventListener('input', renderProducts);
-$('#ptable tbody').addEventListener('click', (e) => {
-  const tr = e.target.closest('tr[data-id]');
-  if (tr) openProduct(state.products.find((p) => p.id === Number(tr.dataset.id)));
-});
 
-// ---------------- Ürün çekmecesi ----------------
-function openDrawer(id) { $('#backdrop').classList.add('open'); $(id).classList.add('open'); }
-function closeDrawers() { $('#backdrop').classList.remove('open'); $$('.drawer').forEach((d) => d.classList.remove('open')); }
-$('#backdrop').addEventListener('click', closeDrawers);
-$$('[data-close]').forEach((b) => b.addEventListener('click', closeDrawers));
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawers(); });
+// ================= Fiyat hesapla =================
+const calc = { profits: {} }; // kullanıcının elle değiştirdiği kâr oranları
+const PREF_KEY = 'pf-calc-prefs';
+function loadPrefs() { try { return JSON.parse(localStorage.getItem(PREF_KEY) || '{}'); } catch { return {}; } }
+function savePrefs() {
+  try { localStorage.setItem(PREF_KEY, JSON.stringify({ cat: $('#c-cat').value, desi: $('#c-desi').value })); } catch { /* yok say */ }
+}
 
-function formProduct() {
-  const f = $('#pform');
-  const val = (n) => parseNum(f.elements[n].value);
-  const overrides = {};
-  $$('#d-breakdown input[data-mp]').forEach((i) => {
-    const c = parseNum(i.value);
-    if (Number.isFinite(c)) overrides[i.dataset.mp] = { commission: c };
-  });
-  return {
-    name: f.elements.name.value.trim(), sku: f.elements.sku.value.trim(),
-    cost: val('cost'), vat: val('vat') || 0, profit: val('profit') || 0, cargo: val('cargo') || 0, commission: val('commission') || 0,
-    overrides,
+function fillCalcSelectors() {
+  const s = state.settings; const prefs = loadPrefs();
+  const curCat = $('#c-cat').value || prefs.cat;
+  const curDesi = $('#c-desi').value || prefs.desi;
+  $('#c-cat').innerHTML = s.categories.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
+  if (s.categories.some((c) => c.id === curCat)) $('#c-cat').value = curCat;
+  const ds = s.desi.slice().sort((a, b) => a - b);
+  $('#c-desi').innerHTML = ds.map((d, i) => `<option value="${d}">${i === 0 ? '0' : ds[i - 1] + ',1'}–${d} desi</option>`).join('');
+  if (ds.includes(Number(curDesi))) $('#c-desi').value = curDesi;
+}
+
+function renderCalc() {
+  const s = state.settings;
+  const input = {
+    categoryId: $('#c-cat').value,
+    desi: Number($('#c-desi').value),
+    cost: parseNum($('#c-cost').value),
+    vat: parseNum($('#c-vat').value) || 0,
+    profits: calc.profits,
   };
-}
-
-function renderBreakdown(keepInputs) {
-  const p = formProduct();
-  const ok = p.cost > 0;
-  const mps = activeMps();
-  const prevOv = keepInputs ? p.overrides : (state.editing?.overrides || {});
-  const rows = mps.map((m) => {
-    const prod = { ...p, overrides: prevOv };
-    const b = ok ? priceFor(prod, m) : null;
-    const ov = prevOv[m.id]?.commission;
-    return `<tr>
-      <td>${esc(m.name)}<br><span class="hint">${b && !b.error ? esc(b.tier) : ''}</span></td>
-      <td><input data-mp="${esc(m.id)}" inputmode="decimal" placeholder="${pctf.format(p.commission || 0)}" value="${ov !== undefined ? fmtIn(ov) : ''}"></td>
-      <td class="num">${b && !b.error ? money(b.commissionTL) : '—'}</td>
-      <td class="num">${b && !b.error ? money(b.cargo + b.fee) : '—'}</td>
-      <td class="num">${b && !b.error ? `<span class="pct ${pctClass(b, p.profit)}">${money(b.netProfit)}<br>%${pctf.format(b.profitPct)}</span>` : '—'}</td>
-      <td class="num"><b>${b && !b.error ? money(b.price) : '—'}</b></td>
+  const rows = Calc.computeAll(s, input);
+  const focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.mp : null;
+  $('#ctable tbody').innerHTML = rows.map((r) => {
+    const changed = Number.isFinite(calc.profits[r.mp.id]) && calc.profits[r.mp.id] !== r.defaultProfit;
+    const profitIn = `<input class="profit-in${changed ? ' changed' : ''}" data-mp="${esc(r.mp.id)}" inputmode="decimal" value="${fmtIn(r.profit)}" title="Varsayılan: %${pctf.format(r.defaultProfit)}">`;
+    const head = `<td class="name"><b>${esc(r.mp.name)}</b></td>`;
+    if (r.unavailable) {
+      return `<tr class="na">${head}<td class="num">%${pctf.format(r.commission)}</td><td colspan="2">Bu desi için kargo tanımlı değil</td><td>${profitIn}</td><td></td><td class="num">—</td></tr>`;
+    }
+    const b = r.result;
+    if (!b) {
+      return `<tr>${head}<td class="num">%${pctf.format(r.commission)}</td><td class="num">${r.desiCargo !== null ? money(r.desiCargo) : '—'}<span class="sub2">desi kargosu</span></td><td class="num">${money(r.mp.fee || 0)}</td><td>${profitIn}</td><td></td><td class="num">—</td></tr>`;
+    }
+    if (b.error) return `<tr>${head}<td colspan="6">${esc(b.error)}</td></tr>`;
+    const extra = Math.abs(b.profitPct - r.profit) > 0.5
+      ? `<span class="sub2" style="color:var(--warn)">%${pctf.format(b.profitPct)} gerçekleşen</span>` : '';
+    return `<tr>${head}
+      <td class="num">%${pctf.format(r.commission)}<span class="sub2">${money(b.commissionTL)}</span></td>
+      <td class="num">${money(b.cargo)}<span class="sub2">${esc(b.tier)}</span></td>
+      <td class="num">${money(b.fee)}</td>
+      <td>${profitIn}</td>
+      <td class="num${b.netProfit < 0 ? ' neg' : ''}">${money(b.netProfit)}${extra}</td>
+      <td class="num price-cell" data-price="${b.price.toFixed(2)}" title="Kopyalamak için tıklayın">${money(b.price)} ₺</td>
     </tr>`;
   }).join('');
-  $('#d-breakdown').innerHTML = `<thead><tr><th>Pazaryeri</th><th>Kom. %</th><th>Komisyon</th><th>Kargo+Hizmet</th><th>Net kâr</th><th>Satış fiyatı</th></tr></thead><tbody>${rows}</tbody>`;
-}
-
-function openProduct(p) {
-  state.editing = p || null;
-  const f = $('#pform');
-  const d = p || { name: '', sku: '', cost: '', vat: 0, profit: 30, cargo: 83, commission: 19 };
-  for (const k of ['name', 'sku']) f.elements[k].value = d[k] || '';
-  for (const k of ['cost', 'vat', 'profit', 'cargo', 'commission']) f.elements[k].value = d[k] === '' ? '' : fmtIn(d[k]);
-  $('#d-title').textContent = p ? 'Ürünü düzenle' : 'Yeni ürün';
-  $('#d-delete').hidden = !p;
-  $('#d-meta').textContent = p ? `Son güncelleyen: ${p.updated_by || '—'} · ${new Date(p.updated_at).toLocaleString('tr-TR')}` : '';
-  renderBreakdown(false);
-  openDrawer('#drawer');
-  setTimeout(() => f.elements[p ? 'cost' : 'name'].focus(), 50);
-}
-$('#pform').addEventListener('input', () => renderBreakdown(true));
-$('#d-breakdown').addEventListener('change', () => renderBreakdown(true));
-$('#pform').addEventListener('submit', (e) => { e.preventDefault(); $('#d-save').click(); });
-$('#btn-add').addEventListener('click', () => openProduct(null));
-
-$('#d-save').addEventListener('click', async () => {
-  const pdata = formProduct();
-  try {
-    if (state.editing) {
-      const saved = await data.updateProduct(state.editing.id, pdata);
-      state.products = state.products.map((p) => (p.id === saved.id ? saved : p));
-    } else {
-      const saved = await data.addProduct(pdata);
-      state.products.push(saved);
-      state.products.sort((a, b) => a.name.localeCompare(b.name, 'tr'));
-    }
-    closeDrawers(); renderProducts(); toast('Kaydedildi');
-  } catch (e) { toast(e.message, true); }
-});
-$('#d-delete').addEventListener('click', async () => {
-  if (!state.editing || !confirm(`“${state.editing.name}” silinsin mi?`)) return;
-  try {
-    await data.deleteProduct(state.editing.id);
-    state.products = state.products.filter((p) => p.id !== state.editing.id);
-    closeDrawers(); renderProducts(); toast('Silindi');
-  } catch (e) { toast(e.message, true); }
-});
-
-// ---------------- Excel'den yapıştır ----------------
-let pasteRows = [];
-$('#btn-paste').addEventListener('click', () => { $('#paste-text').value = ''; parsePaste(); openDrawer('#paste-drawer'); });
-function parsePaste() {
-  const lines = $('#paste-text').value.split(/\r?\n/).filter((l) => l.trim());
-  pasteRows = []; const bad = [];
-  lines.forEach((l, i) => {
-    const c = l.split('\t');
-    const row = { name: (c[0] || '').trim(), cost: parseNum(c[1]), vat: parseNum(c[2]) || 0, profit: parseNum(c[3]) || 0,
-      cargo: parseNum(c[4]) || 0, commission: parseNum(c[5]) || 0, sku: (c[6] || '').trim() };
-    if (row.name && row.cost > 0) pasteRows.push(row);
-    else if (!(i === 0 && !Number.isFinite(row.cost))) bad.push(i + 1); // başlık satırını sessizce atla
-  });
-  $('#paste-preview').innerHTML = pasteRows.length
-    ? `<b>${pasteRows.length}</b> ürün içe aktarılmaya hazır.${bad.length ? ` <span style="color:var(--bad)">Okunamayan satırlar: ${bad.join(', ')}</span>` : ''}`
-    : (bad.length ? `<span style="color:var(--bad)">Satırlar okunamadı. Sütun sırasını kontrol edin.</span>` : '');
-  $('#paste-save').disabled = !pasteRows.length;
-}
-$('#paste-text').addEventListener('input', parsePaste);
-$('#paste-save').addEventListener('click', async () => {
-  try {
-    const added = await data.bulkAdd(pasteRows);
-    state.products = await data.products();
-    closeDrawers(); renderProducts(); toast(`${added} ürün eklendi`);
-  } catch (e) { toast(e.message, true); }
-});
-
-// ---------------- Excel'e aktar ----------------
-$('#btn-export').addEventListener('click', () => {
-  const mps = activeMps();
-  const n = (x) => (Number.isFinite(x) ? x.toFixed(2).replace('.', ',') : '');
-  const cell = (s) => `"${String(s).replace(/"/g, '""')}"`;
-  const head = ['Ürün', 'Stok kodu', 'Maliyet', 'KDV %', 'Kâr %', 'Kargo', 'Komisyon %', ...mps.flatMap((m) => [m.name + ' fiyat', m.name + ' kâr %'])];
-  const lines = [head.map(cell).join(';')];
-  for (const p of state.products) {
-    const vals = [p.name, p.sku, n(p.cost), n(p.vat), n(p.profit), n(p.cargo), n(p.commission)];
-    for (const m of mps) { const b = priceFor(p, m); vals.push(n(b.price), n(b.profitPct)); }
-    lines.push(vals.map(cell).join(';'));
+  if (focused) {
+    const el = $(`#ctable input[data-mp="${focused}"]`);
+    if (el) { el.focus(); const v = el.value; el.value = ''; el.value = v; }
   }
-  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `pazaryeri-fiyatlar-${new Date().toISOString().slice(0, 10)}.csv`;
-  a.click(); URL.revokeObjectURL(a.href);
+}
+
+$('#c-cost').addEventListener('input', renderCalc);
+$('#c-vat').addEventListener('input', renderCalc);
+$('#c-cat').addEventListener('change', () => { calc.profits = {}; $('#c-allprofit').value = ''; savePrefs(); renderCalc(); });
+$('#c-desi').addEventListener('change', () => { savePrefs(); renderCalc(); });
+$('#c-allprofit').addEventListener('input', (e) => {
+  const v = parseNum(e.target.value);
+  calc.profits = {};
+  if (Number.isFinite(v)) state.settings.marketplaces.forEach((m) => (calc.profits[m.id] = v));
+  renderCalc();
+});
+$('#c-reset').addEventListener('click', () => { calc.profits = {}; $('#c-allprofit').value = ''; renderCalc(); });
+$('#ctable').addEventListener('input', (e) => {
+  if (!e.target.classList.contains('profit-in')) return;
+  const v = parseNum(e.target.value);
+  if (Number.isFinite(v)) calc.profits[e.target.dataset.mp] = v; else delete calc.profits[e.target.dataset.mp];
+  renderCalc();
+});
+$('#ctable').addEventListener('click', async (e) => {
+  const td = e.target.closest('.price-cell'); if (!td) return;
+  const txt = td.dataset.price.replace('.', ',');
+  try { await navigator.clipboard.writeText(txt); toast(`${txt} kopyalandı`); } catch { toast(txt); }
 });
 
-// ---------------- Hızlı hesap ----------------
-function quickProduct() {
-  const f = $('#qform');
-  const v = (n) => parseNum(f.elements[n].value) || 0;
-  return { cost: v('cost'), vat: v('vat'), profit: v('profit'), cargo: v('cargo'), commission: v('commission'), overrides: {} };
-}
-function renderQuick() {
-  const p = quickProduct();
-  if (!(p.cost > 0)) { $('#qcards').innerHTML = ''; return; }
-  $('#qcards').innerHTML = activeMps().map((m) => {
-    const b = priceFor(p, m);
-    if (b.error) return `<div class="card mp-card"><h3>${esc(m.name)}</h3><p>${esc(b.error)}</p></div>`;
-    return `<div class="card mp-card">
-      <h3>${esc(m.name)} <span class="pct ${pctClass(b, p.profit)}">%${pctf.format(b.profitPct)} kâr</span></h3>
-      <div class="big num">${money(b.price)} ₺</div>
-      <div class="tier">${esc(b.tier)}</div>
-      <dl>
-        <dt>Komisyon (%${pctf.format(b.commission)})</dt><dd>−${money(b.commissionTL)}</dd>
-        <dt>Kargo</dt><dd>−${money(b.cargo)}</dd>
-        <dt>Hizmet bedeli</dt><dd>−${money(b.fee)}</dd>
-        ${p.vat ? `<dt>KDV</dt><dd>−${money(b.vatTL)}</dd>` : ''}
-        <dt>Maliyet</dt><dd>−${money(p.cost)}</dd>
-        <div class="divider"></div>
-        <dt>Net kâr</dt><dd class="total${b.netProfit < 0 ? ' neg' : ''}">${money(b.netProfit)} ₺</dd>
-      </dl>
-    </div>`;
-  }).join('');
-}
-$('#qform').addEventListener('input', renderQuick);
-$('#q-save').addEventListener('click', () => {
-  const p = quickProduct();
-  openProduct(null);
-  const f = $('#pform');
-  for (const k of ['cost', 'vat', 'profit', 'cargo', 'commission']) f.elements[k].value = fmtIn(p[k]);
-  renderBreakdown(true);
-  f.elements.name.focus();
-});
-
-// ---------------- Ayarlar ----------------
+// ================= Ayarlar (yönetici) =================
 let draft = null;
+const mpName = (id) => (draft.marketplaces.find((m) => m.id === id) || {}).name || id;
+const numIn = (v) => (v === null || v === undefined || v === '' ? '' : fmtIn(Number(v)));
+
+$$('.subtab').forEach((b) => b.addEventListener('click', () => {
+  $$('.subtab').forEach((x) => x.classList.toggle('active', x === b));
+  $$('.sub-view').forEach((v) => v.classList.toggle('active', v.id === 'sub-' + b.dataset.sub));
+}));
+
 function renderSettings() {
   draft = draft || structuredClone(state.settings);
   $('#rounding').value = draft.rounding || 'none';
-  $('#mp-list').innerHTML = draft.marketplaces.map((m, i) => `
+  renderCats(); renderDesi(); renderMps();
+}
+
+function renderCats() {
+  const mps = draft.marketplaces;
+  $('#sub-cats').innerHTML = draft.categories.map((c, ci) => `
+    <div class="card cat-card" data-ci="${ci}">
+      <header>
+        <input data-cat-name value="${esc(c.name)}" placeholder="Kategori adı">
+        <div class="spacer"></div>
+        <button class="btn small danger" data-del-cat ${draft.categories.length < 2 ? 'disabled' : ''}>Kategoriyi sil</button>
+      </header>
+      <div class="table-wrap" style="max-height:none">
+        <table class="grid edit-grid">
+          <thead><tr><th class="name">Pazaryeri</th><th>Komisyon %</th><th>Varsayılan kâr %</th></tr></thead>
+          <tbody>${mps.map((m) => {
+            const r = c.rates[m.id] || { commission: 0, profit: 0 };
+            return `<tr><td class="name">${esc(m.name)}${m.active ? '' : ' <span class="hint">(pasif)</span>'}</td>
+              <td><input data-rate="${esc(m.id)}" data-k="commission" inputmode="decimal" value="${numIn(r.commission)}"></td>
+              <td><input data-rate="${esc(m.id)}" data-k="profit" inputmode="decimal" value="${numIn(r.profit)}"></td></tr>`;
+          }).join('')}</tbody>
+        </table>
+      </div>
+    </div>`).join('') + `<button class="btn" id="cat-add">+ Kategori ekle</button>`;
+}
+$('#sub-cats').addEventListener('input', (e) => {
+  const card = e.target.closest('[data-ci]'); if (!card) return;
+  const c = draft.categories[card.dataset.ci];
+  if (e.target.matches('[data-cat-name]')) c.name = e.target.value;
+  else if (e.target.dataset.rate) {
+    const id = e.target.dataset.rate;
+    c.rates[id] = c.rates[id] || { commission: 0, profit: 0 };
+    c.rates[id][e.target.dataset.k] = parseNum(e.target.value) || 0;
+  }
+});
+$('#sub-cats').addEventListener('click', (e) => {
+  if (e.target.id === 'cat-add') {
+    const base = draft.categories[0];
+    draft.categories.push({ id: 'cat' + Date.now().toString(36), name: 'Yeni kategori', rates: structuredClone(base ? base.rates : {}) });
+    renderCats();
+    $$('#sub-cats [data-cat-name]').pop().select();
+  } else if (e.target.matches('[data-del-cat]')) {
+    const ci = Number(e.target.closest('[data-ci]').dataset.ci);
+    if (confirm(`“${draft.categories[ci].name}” kategorisi silinsin mi?`)) { draft.categories.splice(ci, 1); renderCats(); }
+  }
+});
+
+function renderDesi() {
+  const ds = draft.desi.slice().sort((a, b) => a - b);
+  const mps = draft.marketplaces;
+  $('#sub-desi').innerHTML = `
+    <p class="hint" style="margin-top:0">Barem üstü satışlarda kesilen kargo. Boş bırakılan hücre: o desi için kargo yok (pazaryeri o desideki ürünlerde “tanımlı değil” görünür).</p>
+    <div class="card table-wrap">
+      <table class="grid edit-grid">
+        <thead><tr><th class="name" style="min-width:110px">Desi (en fazla)</th>${mps.map((m) => `<th>${esc(m.name)}</th>`).join('')}<th></th></tr></thead>
+        <tbody>${ds.map((d) => `<tr data-d="${d}">
+          <td class="name"><input data-desi-val value="${d}" inputmode="decimal" style="width:64px"></td>
+          ${mps.map((m) => `<td><input data-dc="${esc(m.id)}" inputmode="decimal" value="${numIn(m.desiCargo ? m.desiCargo[d] : '')}"></td>`).join('')}
+          <td><button class="btn small" data-del-desi title="Satırı sil">×</button></td></tr>`).join('')}</tbody>
+      </table>
+    </div>
+    <button class="btn" id="desi-add" style="margin-top:12px">+ Desi satırı ekle</button>`;
+}
+$('#sub-desi').addEventListener('change', (e) => {
+  const tr = e.target.closest('tr[data-d]'); if (!tr) return;
+  const d = Number(tr.dataset.d);
+  if (e.target.matches('[data-desi-val]')) {
+    const nd = parseNum(e.target.value);
+    if (!(nd > 0) || (nd !== d && draft.desi.includes(nd))) { toast('Geçersiz ya da tekrar eden desi', true); return renderDesi(); }
+    draft.desi = draft.desi.map((x) => (x === d ? nd : x));
+    draft.marketplaces.forEach((m) => { m.desiCargo = m.desiCargo || {}; m.desiCargo[nd] = m.desiCargo[d]; if (nd !== d) delete m.desiCargo[d]; });
+    renderDesi();
+  } else if (e.target.dataset.dc) {
+    const m = draft.marketplaces.find((x) => x.id === e.target.dataset.dc);
+    const v = parseNum(e.target.value);
+    m.desiCargo = m.desiCargo || {};
+    m.desiCargo[d] = Number.isFinite(v) ? v : null;
+  }
+});
+$('#sub-desi').addEventListener('click', (e) => {
+  if (e.target.id === 'desi-add') {
+    const nd = Math.max(0, ...draft.desi) + 5;
+    draft.desi.push(nd); draft.marketplaces.forEach((m) => { m.desiCargo = m.desiCargo || {}; m.desiCargo[nd] = null; });
+    renderDesi();
+  } else if (e.target.matches('[data-del-desi]')) {
+    if (draft.desi.length < 2) return;
+    const d = Number(e.target.closest('tr').dataset.d);
+    draft.desi = draft.desi.filter((x) => x !== d);
+    draft.marketplaces.forEach((m) => m.desiCargo && delete m.desiCargo[d]);
+    renderDesi();
+  }
+});
+
+function renderMps() {
+  $('#sub-mps').innerHTML = `<div class="mp-settings">${draft.marketplaces.map((m, i) => `
     <div class="card mp-set" data-i="${i}">
       <label class="field">Pazaryeri adı<input data-k="name" value="${esc(m.name)}"></label>
-      <label class="field">Hizmet bedeli (₺)<input data-k="fee" inputmode="decimal" value="${fmtIn(m.fee)}"></label>
+      <label class="field">Hizmet bedeli (₺)<input data-k="fee" inputmode="decimal" value="${numIn(m.fee)}"></label>
       <label class="field">Kargo modeli
         <select data-k="mode"><option value="tiers"${m.mode !== 'shared' ? ' selected' : ''}>Baremli</option><option value="shared"${m.mode === 'shared' ? ' selected' : ''}>Paylı</option></select>
       </label>
       <div>
         ${m.mode === 'shared' ? `
-          <label class="field" style="max-width:200px">Eşik tutar (₺)<input data-k="threshold" inputmode="decimal" value="${fmtIn(m.threshold)}"></label>
-          <p class="hint">Eşiğin altında kargo, fiyat ÷ eşik oranında kesilir; üstünde ürünün kendi kargosu.</p>` : `
+          <label class="field" style="max-width:200px">Eşik tutar (₺)<input data-k="threshold" inputmode="decimal" value="${numIn(m.threshold)}"></label>
+          <p class="hint">Eşiğin altında desi kargosunun fiyat ÷ eşik kadarı kesilir; üstünde tamamı.</p>` : `
           <div class="tiers">
-            <span class="hint">Kargo baremleri (bu tutarın altındaki satışlarda kesilen kargo)</span>
+            <span class="hint">Barem kargoları (bu tutarın altındaki satışlarda kesilen kargo)</span>
             ${(m.tiers || []).map((t, j) => `<div class="tier-row">
-              <input data-tier="${j}" data-tk="max" inputmode="decimal" value="${fmtIn(t.max)}"> ₺ altı →
-              <input data-tier="${j}" data-tk="cargo" inputmode="decimal" value="${fmtIn(t.cargo)}"> ₺ kargo
+              <input data-tier="${j}" data-tk="max" inputmode="decimal" value="${numIn(t.max)}"> ₺ altı →
+              <input data-tier="${j}" data-tk="cargo" inputmode="decimal" value="${numIn(t.cargo)}"> ₺ kargo
               <button class="btn small" data-del-tier="${j}" title="Baremi sil">×</button></div>`).join('')}
             <div class="tier-row"><button class="btn small" data-add-tier>+ Barem</button>
-              <span class="hint">Üstünde: ürünün kendi kargosu</span></div>
+              <span class="hint">Üstünde: desi kargosu</span></div>
           </div>`}
+        <label class="field" style="max-width:260px; margin-top:10px">Barem en fazla kaç desiye kadar geçerli
+          <input data-k="baremMaxDesi" inputmode="decimal" placeholder="Sınırsız" value="${numIn(m.baremMaxDesi)}"></label>
       </div>
       <div style="display:flex; flex-direction:column; gap:8px; align-items:end">
         <label class="toggle"><input type="checkbox" data-k="active"${m.active ? ' checked' : ''}> Aktif</label>
-        <button class="btn small danger" data-del-mp>Kaldır</button>
       </div>
-    </div>`).join('');
+    </div>`).join('')}</div>
+    <button class="btn" id="mp-add" style="margin-top:12px">+ Pazaryeri ekle</button>`;
 }
-$('#mp-list').addEventListener('input', (e) => {
+$('#sub-mps').addEventListener('input', (e) => {
   const card = e.target.closest('[data-i]'); if (!card) return;
   const m = draft.marketplaces[card.dataset.i];
   const el = e.target;
   if (el.dataset.k === 'active') m.active = el.checked;
   else if (el.dataset.k === 'name') m.name = el.value;
-  else if (el.dataset.k === 'mode') { m.mode = el.value; if (m.mode === 'shared' && !m.threshold) m.threshold = 400; renderSettings(); }
+  else if (el.dataset.k === 'mode') { m.mode = el.value; if (m.mode === 'shared' && !m.threshold) m.threshold = 400; renderMps(); }
+  else if (el.dataset.k === 'baremMaxDesi') { const v = parseNum(el.value); m.baremMaxDesi = v > 0 ? v : null; }
   else if (el.dataset.k) m[el.dataset.k] = parseNum(el.value) || 0;
   else if (el.dataset.tier !== undefined) m.tiers[el.dataset.tier][el.dataset.tk] = parseNum(el.value) || 0;
 });
-$('#mp-list').addEventListener('change', (e) => { if (e.target.type === 'checkbox' || e.target.tagName === 'SELECT') e.target.dispatchEvent(new Event('input', { bubbles: true })); });
-$('#mp-list').addEventListener('click', (e) => {
+$('#sub-mps').addEventListener('change', (e) => { if (e.target.type === 'checkbox' || e.target.tagName === 'SELECT') e.target.dispatchEvent(new Event('input', { bubbles: true })); });
+$('#sub-mps').addEventListener('click', (e) => {
+  if (e.target.id === 'mp-add') {
+    const id = 'mp' + Date.now().toString(36);
+    draft.marketplaces.push({ id, name: 'Yeni pazaryeri', active: true, mode: 'tiers', fee: 0, tiers: [], threshold: 0, baremMaxDesi: null,
+      desiCargo: Object.fromEntries(draft.desi.map((d) => [d, null])) });
+    draft.categories.forEach((c) => (c.rates[id] = { commission: 0, profit: 30 }));
+    renderSettings(); return;
+  }
   const card = e.target.closest('[data-i]'); if (!card) return;
   const m = draft.marketplaces[card.dataset.i];
   if (e.target.matches('[data-add-tier]')) {
     const last = m.tiers[m.tiers.length - 1];
-    m.tiers.push({ max: last ? last.max + 100 : 150, cargo: last ? last.cargo : 50 }); renderSettings();
+    m.tiers.push({ max: last ? last.max + 100 : 150, cargo: last ? last.cargo : 50 }); renderMps();
   } else if (e.target.dataset.delTier !== undefined) {
-    m.tiers.splice(Number(e.target.dataset.delTier), 1); renderSettings();
-  } else if (e.target.matches('[data-del-mp]')) {
-    if (confirm(`${m.name} kaldırılsın mı? (Geçici gizlemek için “Aktif” kutusunu kaldırmanız yeterli.)`)) {
-      draft.marketplaces.splice(Number(card.dataset.i), 1); renderSettings();
-    }
+    m.tiers.splice(Number(e.target.dataset.delTier), 1); renderMps();
   }
 });
 $('#rounding').addEventListener('change', (e) => { draft.rounding = e.target.value; });
-$('#mp-add').addEventListener('click', () => {
-  draft.marketplaces.push({ id: 'mp' + Date.now().toString(36), name: 'Yeni pazaryeri', active: true, mode: 'tiers', fee: 0, tiers: [] });
-  renderSettings();
-  $$('#mp-list [data-k=name]').pop().focus();
-});
+
+function cleanDraft(d) {
+  const s = structuredClone(d);
+  s.version = 2;
+  s.desi = [...new Set(s.desi.map(Number).filter((x) => x > 0))].sort((a, b) => a - b);
+  s.marketplaces.forEach((m) => {
+    m.tiers = (m.tiers || []).filter((t) => t.max > 0 && t.cargo >= 0).sort((a, b) => a.max - b.max);
+    m.name = String(m.name || '').trim() || m.id;
+  });
+  s.categories.forEach((c) => {
+    c.name = String(c.name || '').trim() || 'Kategori';
+    for (const r of Object.values(c.rates)) if (!(r.commission >= 0 && r.commission < 100)) throw new Error(`${c.name}: komisyon 0–99 arasında olmalı`);
+  });
+  return s;
+}
 $('#settings-save').addEventListener('click', async () => {
   try {
-    state.settings = await data.saveSettings(draft);
-    draft = null; renderSettings(); renderProducts(); toast('Ayarlar kaydedildi');
-  } catch (e) { toast(e.message, true); }
+    const s = cleanDraft(draft);
+    state.settings = normalizeSettings(await data.saveSettings(s));
+    draft = null; renderSettings(); fillCalcSelectors(); toast('Ayarlar kaydedildi');
+  } catch (e) { toast(trErr(e), true); }
 });
-
 
 // ---------------- Kullanıcılar ----------------
 async function loadUsers() {
@@ -496,14 +466,15 @@ async function boot() {
     return showAuth('f-pending');
   }
   state.me = me;
-  [state.settings, state.products] = await Promise.all([data.settings(), data.products()]);
+  state.settings = normalizeSettings(await data.settings());
   $('#who').textContent = me.name;
   $('#acc-sub').textContent = `${me.name} · ${me.email} · ${me.role === 'admin' ? 'Yönetici' : 'Kullanıcı'}`;
   adminTabs = adminTabs || $$('.admin-only');
   adminTabs.forEach((el) => (el.hidden = me.role !== 'admin'));
   $('#auth').hidden = true; $('#app').hidden = false;
-  showView('products');
-  renderProducts();
+  fillCalcSelectors();
+  showView('calc');
+  setTimeout(() => $('#c-cost').focus(), 50);
 }
 
 (async function init() {
