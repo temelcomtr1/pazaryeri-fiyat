@@ -1,6 +1,6 @@
 'use strict';
 // Pazaryeri Fiyatlandırma — GitHub Pages + Supabase sürümü
-const APP_VERSION = 8;
+const APP_VERSION = 9;
 
 // Beklenmeyen bir hata olursa boş ekran yerine açıklama göster
 function showFatal(msg) {
@@ -172,6 +172,10 @@ function normalizeSettings(s) {
     const ptt = s.marketplaces.find((m) => m.id === 'eptt');
     if (ptt && !ptt.costRule) ptt.costRule = { maxCost: 165, cargo: 25 };
   }
+  if (rev < 6) { // Pazaryeri satır renkleri
+    const extra = ['#5a7d9a', '#8a6fb0', '#6b8e23', '#b07a3c', '#4a8f8a'];
+    s.marketplaces.forEach((m, i) => { if (!m.color) m.color = Calc.MP_COLORS[m.id] || extra[i % extra.length]; });
+  }
   if (rev < 5) { // İstenen pazaryeri sırası
     const order = def.marketplaces.map((m) => m.id);
     const pos = (m) => { const i = order.indexOf(m.id); return i < 0 ? 999 : i; };
@@ -179,6 +183,12 @@ function normalizeSettings(s) {
   }
   s.rev = def.rev;
   return s;
+}
+
+// Pazaryeri renkleri: şerit, satır zemini, üzerine gelince biraz daha koyu zemin
+function mpStyle(mp) {
+  const c = mp.color || '#8a948f';
+  return `style="--mp:${c};--mp-bg:${Calc.tint(c, 0.9)};--mp-bg2:${Calc.tint(c, 0.82)}"`;
 }
 
 // ================= Fiyat hesapla =================
@@ -214,18 +224,19 @@ function renderCalc() {
   $('#ctable tbody').innerHTML = rows.map((r) => {
     const changed = Number.isFinite(calc.profits[r.mp.id]) && calc.profits[r.mp.id] !== r.defaultProfit;
     const profitIn = `<input class="profit-in${changed ? ' changed' : ''}" data-mp="${esc(r.mp.id)}" inputmode="decimal" value="${fmtIn(r.profit)}" title="Varsayılan: %${pctf.format(r.defaultProfit)}">`;
-    const head = `<td class="name"><b>${esc(r.mp.name)}</b></td>`;
+    const head = `<td class="name"><span class="mp-dot"></span><b>${esc(r.mp.name)}</b></td>`;
+    const rs = mpStyle(r.mp);
     if (r.unavailable) {
-      return `<tr class="na">${head}<td class="num">%${pctf.format(r.commission)}</td><td colspan="2">Bu desi için kargo tanımlı değil</td><td>${profitIn}</td><td></td><td class="num">—</td></tr>`;
+      return `<tr class="na" ${rs}>${head}<td class="num">%${pctf.format(r.commission)}</td><td colspan="2">Bu desi için kargo tanımlı değil</td><td>${profitIn}</td><td></td><td class="num">—</td></tr>`;
     }
     const b = r.result;
     if (!b) {
-      return `<tr>${head}<td class="num">%${pctf.format(r.commission)}</td><td class="num">${r.desiCargo !== null ? money(r.desiCargo) : '—'}<span class="sub2">desi kargosu</span></td><td class="num">${money(r.mp.fee || 0)}</td><td>${profitIn}</td><td></td><td class="num">—</td></tr>`;
+      return `<tr ${rs}>${head}<td class="num">%${pctf.format(r.commission)}</td><td class="num">${r.desiCargo !== null ? money(r.desiCargo) : '—'}<span class="sub2">desi kargosu</span></td><td class="num">${money(r.mp.fee || 0)}</td><td>${profitIn}</td><td></td><td class="num">—</td></tr>`;
     }
-    if (b.error) return `<tr>${head}<td colspan="6">${esc(b.error)}</td></tr>`;
+    if (b.error) return `<tr ${rs}>${head}<td colspan="6">${esc(b.error)}</td></tr>`;
     const extra = Math.abs(b.profitPct - r.profit) > 0.5
       ? `<span class="sub2" style="color:var(--warn)">%${pctf.format(b.profitPct)} gerçekleşen</span>` : '';
-    return `<tr>${head}
+    return `<tr ${rs}>${head}
       <td class="num">%${pctf.format(r.commission)}<span class="sub2">${money(b.commissionTL)}</span></td>
       <td class="num">${money(b.cargo)}<span class="sub2">${esc(b.tier)}</span></td>
       <td class="num">${money(b.fee)}</td>
@@ -426,7 +437,12 @@ $('#b-download').addEventListener('click', () => {
   })];
   const widths = [16, 40, 28, 7, 11, 10, ...mps.map(() => 13), ...(withProfit ? mps.map(() => 13) : []), 40];
   const date = new Date().toISOString().slice(0, 10);
-  downloadBlob(XLSX.write(rows, { sheetName: 'Fiyatlar', widths, money: moneyCols }), `${bulk.fileName || 'urunler'}-fiyatlar-${date}.xlsx`);
+  const headerFills = head.map(() => null);
+  mps.forEach((m, i) => {
+    headerFills[6 + i] = Calc.tint(m.color || '#8a948f', 0.75);
+    if (withProfit) headerFills[6 + mps.length + i] = Calc.tint(m.color || '#8a948f', 0.85);
+  });
+  downloadBlob(XLSX.write(rows, { sheetName: 'Fiyatlar', widths, money: moneyCols, headerFills }), `${bulk.fileName || 'urunler'}-fiyatlar-${date}.xlsx`);
 });
 
 $('#b-template').addEventListener('click', () => {
@@ -476,7 +492,7 @@ function renderCats() {
           <thead><tr><th class="name">Pazaryeri</th><th>Komisyon %</th><th>Varsayılan kâr %</th></tr></thead>
           <tbody>${mps.map((m) => {
             const r = c.rates[m.id] || { commission: 0, profit: 0 };
-            return `<tr><td class="name">${esc(m.name)}${m.active ? '' : ' <span class="hint">(pasif)</span>'}</td>
+            return `<tr ${mpStyle(m)} class="mp-row"><td class="name"><span class="mp-dot"></span>${esc(m.name)}${m.active ? '' : ' <span class="hint">(pasif)</span>'}</td>
               <td><input data-rate="${esc(m.id)}" data-k="commission" inputmode="decimal" value="${numIn(r.commission)}"></td>
               <td><input data-rate="${esc(m.id)}" data-k="profit" inputmode="decimal" value="${numIn(r.profit)}"></td></tr>`;
           }).join('')}</tbody>
@@ -513,7 +529,7 @@ function renderDesi() {
     <p class="hint" style="margin-top:0">Barem üstü satışlarda kesilen kargo. Boş bırakılan hücre: o desi için kargo yok (pazaryeri o desideki ürünlerde “tanımlı değil” görünür).</p>
     <div class="card table-wrap">
       <table class="grid edit-grid">
-        <thead><tr><th class="name" style="min-width:110px">Desi (en fazla)</th>${mps.map((m) => `<th>${esc(m.name)}</th>`).join('')}<th></th></tr></thead>
+        <thead><tr><th class="name" style="min-width:110px">Desi (en fazla)</th>${mps.map((m) => `<th ${mpStyle(m)} class="mp-th">${esc(m.name)}</th>`).join('')}<th></th></tr></thead>
         <tbody>${ds.map((d) => `<tr data-d="${d}">
           <td class="name"><input data-desi-val value="${d}" inputmode="decimal" style="width:64px"></td>
           ${mps.map((m) => `<td><input data-dc="${esc(m.id)}" inputmode="decimal" value="${numIn(m.desiCargo ? m.desiCargo[d] : '')}"></td>`).join('')}
@@ -554,8 +570,11 @@ $('#sub-desi').addEventListener('click', (e) => {
 
 function renderMps() {
   $('#sub-mps').innerHTML = `<div class="mp-settings">${draft.marketplaces.map((m, i) => `
-    <div class="card mp-set" data-i="${i}">
+    <div class="card mp-set" data-i="${i}" ${mpStyle(m)}>
+      <div style="display:grid; gap:10px">
       <label class="field">Pazaryeri adı<input data-k="name" value="${esc(m.name)}"></label>
+      <label class="field">Satır rengi<span class="color-row"><input type="color" data-k="color" value="${esc(m.color || '#8a948f')}"><span class="color-prev">Örnek satır</span></span></label>
+      </div>
       <label class="field">Hizmet bedeli (₺)<input data-k="fee" inputmode="decimal" value="${numIn(m.fee)}"></label>
       <label class="field">Kargo modeli
         <select data-k="mode"><option value="tiers"${m.mode !== 'shared' ? ' selected' : ''}>Baremli</option><option value="shared"${m.mode === 'shared' ? ' selected' : ''}>Paylı</option></select>
@@ -597,6 +616,7 @@ $('#sub-mps').addEventListener('input', (e) => {
   const el = e.target;
   if (el.dataset.k === 'active') m.active = el.checked;
   else if (el.dataset.k === 'name') m.name = el.value;
+  else if (el.dataset.k === 'color') { m.color = el.value; const card = el.closest('.mp-set'); card.setAttribute('style', mpStyle(m).slice(7, -1)); }
   else if (el.dataset.k === 'mode') { m.mode = el.value; if (m.mode === 'shared' && !m.threshold) m.threshold = 400; renderMps(); }
   else if (el.dataset.cr) {
     m.costRule = m.costRule || { maxCost: 0, cargo: 0 };

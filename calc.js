@@ -138,6 +138,18 @@
   // ===================== Sürüm 2: kategori + desi =====================
   const MP_ORDER = ['site', 'n11', 'hepsiburada', 'trendyol', 'eptt', 'amazon', 'ciceksepeti', 'pazarama', 'koctas', 'idefix', 'passo'];
   const DESI = [2, 5, 10, 15, 20, 25, 30, 35, 40];
+  // Satır renkleri (şerit rengi; zemin bundan açık ton olarak türetilir)
+  const MP_COLORS = {
+    site: '#2a9d8f', n11: '#7b52c7', hepsiburada: '#e2582b', trendyol: '#e8930c', eptt: '#c9a300', amazon: '#3b5b85',
+    ciceksepeti: '#3d9b4f', pazarama: '#2f6fd6', koctas: '#c43c5a', idefix: '#b5489a', passo: '#9a6b3f',
+  };
+  // Hex rengi beyazla karıştırır (amount: 0 = renk, 1 = beyaz)
+  function tint(hex, amount) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if (!m) return '#ffffff';
+    const n = parseInt(m[1], 16);
+    const mix = (c) => Math.round(c + (255 - c) * amount).toString(16).padStart(2, '0');
+    return '#' + mix(n >> 16) + mix((n >> 8) & 255) + mix(n & 255);
+  }
   // Desi kargo tablosu (desi: [2,5,10,15,20,25,30,35,40]); null = o desi için kargo yok
   const DESI_TABLE = {
     site:        [140, 185, 185, 265, 265, 383, 383, 480, 480],
@@ -181,10 +193,10 @@
     rounding: 'none',
     desi: DESI.slice(),
     marketplaces: MP_ORDER.map((id) => ({
-      id, active: true, threshold: 0, baremMaxDesi: null, ...JSON.parse(JSON.stringify(MP_BASE[id])),
+      id, active: true, threshold: 0, baremMaxDesi: null, color: MP_COLORS[id], ...JSON.parse(JSON.stringify(MP_BASE[id])),
       desiCargo: Object.fromEntries(DESI.map((d, i) => [d, DESI_TABLE[id][i]])),
     })),
-    rev: 5,
+    rev: 6,
     categories: CATS.map(([id, name, c]) => ({ id, name, rates: catRates(c) })),
   };
 
@@ -223,7 +235,7 @@
     });
   }
 
-  const api = { DEFAULT_SETTINGS, DEFAULT_SETTINGS_V2, priceFor, solvePrice, breakdown, roundPrice, excelMultiplier, computeAll, desiCargo };
+  const api = { MP_COLORS, tint, DEFAULT_SETTINGS, DEFAULT_SETTINGS_V2, priceFor, solvePrice, breakdown, roundPrice, excelMultiplier, computeAll, desiCargo };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Calc = api;
 })(typeof window !== 'undefined' ? window : globalThis);

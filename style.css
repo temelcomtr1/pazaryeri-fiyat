@@ -235,3 +235,19 @@ table.mini input { width: 70px; padding: 4px 6px; text-align: right; }
 @media (max-width: 860px) { .bulk-steps { grid-template-columns: 1fr; } }
 .move-btns { display: flex; gap: 4px; }
 .move-btns .btn { padding: 3px 9px; }
+
+/* ---- Pazaryeri renkleri ---- */
+.calc-table tbody tr[style] td { background: var(--mp-bg); }
+.calc-table tbody tr[style]:hover td { background: var(--mp-bg2); }
+.calc-table tbody tr[style] td.name { box-shadow: inset 5px 0 0 var(--mp); padding-left: 18px; }
+.calc-table tbody tr td { border-bottom-color: #ffffff; border-bottom-width: 2px; }
+.calc-table tr.na td { opacity: .75; }
+.mp-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--mp, #8a948f); margin-right: 8px; vertical-align: 1px; }
+.calc-table .mp-dot { display: none; }
+.edit-grid tr.mp-row td.name { box-shadow: inset 4px 0 0 var(--mp); padding-left: 14px; }
+.edit-grid th.mp-th { background: var(--mp-bg); color: var(--ink); box-shadow: inset 0 -3px 0 var(--mp); }
+.mp-set[style] { box-shadow: inset 5px 0 0 var(--mp), var(--shadow); }
+.color-row { display: flex; align-items: center; gap: 8px; }
+.color-row input[type=color] { width: 44px; height: 34px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); cursor: pointer; }
+.color-prev { flex: 1; padding: 7px 10px; border-radius: 8px; background: var(--mp-bg); box-shadow: inset 4px 0 0 var(--mp); font-size: 13px; }
+.calc-table input.profit-in { background: rgba(255,255,255,.85); }
