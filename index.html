@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="style.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%231f5f4a%22/%3E%3Ctext x=%2216%22 y=%2223%22 font-size=%2220%22 text-anchor=%22middle%22 fill=%22white%22 font-family=%22Arial%22 font-weight=%22bold%22%3E%E2%82%BA%3C/text%3E%3C/svg%3E">
 </head>
-<body data-version="9">
+<body data-version="10">
 
 <!-- ============ GİRİŞ EKRANLARI ============ -->
 <div id="auth" class="login-wrap" hidden>
@@ -70,6 +70,7 @@
   <div class="brand"><span class="brand-mark">₺</span><span class="t">Pazaryeri Fiyatlandırma</span></div>
   <nav class="tabs">
     <button class="tab active" data-view="calc">Fiyat Hesapla</button>
+    <button class="tab" data-view="camp">Kampanya</button>
     <button class="tab" data-view="bulk">Toplu Hesapla</button>
     <button class="tab admin-only" data-view="settings">Ayarlar</button>
     <button class="tab admin-only" data-view="users">Kullanıcılar</button>
@@ -101,6 +102,32 @@
     <p class="hint" style="margin-top:10px">Fiyatın üstüne tıklayınca panoya kopyalanır. Kargo sütununda kesilen kargo ve hangi baremden hesaplandığı yazar.</p>
   </section>
 
+  <!-- KAMPANYA -->
+  <section class="view" id="view-camp">
+    <div class="camp-banner">
+      <b>Kampanya hesabı</b>
+      <span>Kategori yok. Komisyon ve kâr oranlarını aşağıdaki tablodan pazaryeri bazında değiştirebilirsiniz; kargo, desi ve baremler aynı.</span>
+    </div>
+    <div class="card card-pad calc-inputs camp-inputs">
+      <label class="field">Desi<select id="k-desi"></select></label>
+      <label class="field big-field">Maliyet (₺)<input id="k-cost" inputmode="decimal" placeholder="0,00" autocomplete="off"></label>
+      <label class="field">KDV (%)<input id="k-vat" inputmode="decimal" value="0"></label>
+      <label class="field">Tümüne komisyon (%)<input id="k-allcomm" inputmode="decimal" placeholder="—"></label>
+      <label class="field">Tümüne kâr (%)<input id="k-allprofit" inputmode="decimal" placeholder="—"></label>
+      <button class="btn" id="k-reset" type="button" title="Komisyon ve kâr oranlarını kampanya varsayılanlarına döndür">Varsayılanlara dön</button>
+    </div>
+    <div class="card table-wrap" style="margin-top:14px">
+      <table class="grid calc-table" id="ktable">
+        <thead><tr>
+          <th class="name">Pazaryeri</th><th class="col-profit">Komisyon %</th><th>Kargo</th><th>Hizmet</th><th class="col-profit">Kâr %</th>
+          <th>Net kâr</th><th class="col-price">Satış fiyatı</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="hint" style="margin-top:10px">Değiştirdiğiniz oranlar bu bilgisayarda hatırlanır; “Varsayılanlara dön” ile sıfırlanır. Varsayılan kampanya oranlarını yönetici Ayarlar → Kampanya bölümünden belirler.</p>
+  </section>
+
   <!-- TOPLU HESAPLA -->
   <section class="view" id="view-bulk">
     <h1>Toplu Hesapla</h1>
@@ -123,6 +150,7 @@
           <label class="field">Desi boşsa<select id="b-defdesi"></select></label>
         </div>
         <label class="toggle" style="margin-top:12px"><input type="checkbox" id="b-profitcols"> Net kâr sütunlarını da ekle</label>
+        <label class="toggle" style="margin-top:8px"><input type="checkbox" id="b-camp"> Kampanya oranlarıyla hesapla <span class="hint">(kategori yok sayılır; Kampanya sayfasındaki komisyon ve kâr kullanılır)</span></label>
       </div>
     </div>
     <div class="card card-pad" id="b-result" hidden style="margin-top:14px">
@@ -154,10 +182,12 @@
     </div>
     <div class="subtabs">
       <button class="subtab active" data-sub="cats">Kategoriler (komisyon ve kâr)</button>
+      <button class="subtab" data-sub="camp">Kampanya</button>
       <button class="subtab" data-sub="desi">Desi kargo tablosu</button>
       <button class="subtab" data-sub="mps">Pazaryerleri ve baremler</button>
     </div>
     <div class="sub-view active" id="sub-cats"></div>
+    <div class="sub-view" id="sub-camp"></div>
     <div class="sub-view" id="sub-desi"></div>
     <div class="sub-view" id="sub-mps"></div>
   </section>

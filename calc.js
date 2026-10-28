@@ -196,8 +196,9 @@
       id, active: true, threshold: 0, baremMaxDesi: null, color: MP_COLORS[id], ...JSON.parse(JSON.stringify(MP_BASE[id])),
       desiCargo: Object.fromEntries(DESI.map((d, i) => [d, DESI_TABLE[id][i]])),
     })),
-    rev: 6,
+    rev: 7,
     categories: CATS.map(([id, name, c]) => ({ id, name, rates: catRates(c) })),
+    campaign: { rates: catRates(19) },
   };
 
   // Seçilen desi için kargo: tam eşleşme yoksa bir üst desi kullanılır
@@ -213,7 +214,8 @@
   function computeAll(settings, input) {
     const cat = settings.categories.find((c) => c.id === input.categoryId) || settings.categories[0];
     return settings.marketplaces.filter((m) => m.active).map((mp) => {
-      const rate = (cat && cat.rates[mp.id]) || { commission: 0, profit: 0 };
+      // input.rates verilirse (kampanya) kategori yerine onlar kullanılır
+      const rate = (input.rates && input.rates[mp.id]) || (cat && cat.rates[mp.id]) || { commission: 0, profit: 0 };
       const profit = input.profits && Number.isFinite(input.profits[mp.id]) ? input.profits[mp.id] : rate.profit;
       let cargo = desiCargo(mp, input.desi, settings.desi);
       // Maliyet kuralı: maliyet belirli tutarın altındaysa desiden bağımsız sabit kargo (ör. ePTT 165 ₺ altı → 25 ₺)

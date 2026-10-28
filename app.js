@@ -1,6 +1,6 @@
 'use strict';
 // Pazaryeri Fiyatlandırma — GitHub Pages + Supabase sürümü
-const APP_VERSION = 9;
+const APP_VERSION = 10;
 
 // Beklenmeyen bir hata olursa boş ekran yerine açıklama göster
 function showFatal(msg) {
@@ -152,6 +152,7 @@ function showView(name) {
   if (name === 'users') loadUsers();
   if (name === 'settings') renderSettings();
   if (name === 'calc') renderCalc();
+  if (name === 'camp') { fillCampSelectors(); renderCamp(); setTimeout(() => $('#k-cost').focus(), 30); }
   if (name === 'bulk') { fillBulkSelectors(); renderBulk(); }
 }
 $$('.tab').forEach((t) => t.addEventListener('click', () => showView(t.dataset.view)));
@@ -171,6 +172,10 @@ function normalizeSettings(s) {
   if (rev < 4) { // ePTT: maliyet 165 ₺ altı → 25 ₺ kargo
     const ptt = s.marketplaces.find((m) => m.id === 'eptt');
     if (ptt && !ptt.costRule) ptt.costRule = { maxCost: 165, cargo: 25 };
+  }
+  if (rev < 7 || !s.campaign || !s.campaign.rates) { // Kampanya varsayılanları
+    s.campaign = s.campaign && s.campaign.rates ? s.campaign : { rates: structuredClone(def.campaign.rates) };
+    for (const m of s.marketplaces) if (!s.campaign.rates[m.id]) s.campaign.rates[m.id] = { commission: 0, profit: 30 };
   }
   if (rev < 6) { // Pazaryeri satır renkleri
     const extra = ['#5a7d9a', '#8a6fb0', '#6b8e23', '#b07a3c', '#4a8f8a'];
@@ -274,6 +279,94 @@ $('#ctable').addEventListener('click', async (e) => {
   try { await navigator.clipboard.writeText(txt); toast(`${txt} kopyalandı`); } catch { toast(txt); }
 });
 
+// ================= Kampanya =================
+const CAMP_KEY = 'pf-camp';
+const camp = (() => { try { return JSON.parse(localStorage.getItem(CAMP_KEY) || 'null') || { rates: {} }; } catch { return { rates: {} }; } })();
+camp.rates = camp.rates || {};
+function saveCamp() { try { localStorage.setItem(CAMP_KEY, JSON.stringify({ rates: camp.rates, desi: $('#k-desi').value })); } catch { /* yok say */ } }
+// Varsayılan kampanya oranı + kullanıcının değiştirdiği değerler
+function campRates() {
+  const def = (state.settings.campaign && state.settings.campaign.rates) || {};
+  const out = {};
+  for (const m of state.settings.marketplaces) {
+    const d = def[m.id] || { commission: 0, profit: 0 };
+    const o = camp.rates[m.id] || {};
+    out[m.id] = {
+      commission: Number.isFinite(o.commission) ? o.commission : d.commission,
+      profit: Number.isFinite(o.profit) ? o.profit : d.profit,
+      defCommission: d.commission, defProfit: d.profit,
+    };
+  }
+  return out;
+}
+function fillCampSelectors() {
+  const ds = state.settings.desi.slice().sort((a, b) => a - b);
+  const cur = $('#k-desi').value || (() => { try { return (JSON.parse(localStorage.getItem(CAMP_KEY) || '{}') || {}).desi; } catch { return null; } })();
+  $('#k-desi').innerHTML = ds.map((d) => `<option value="${d}">${fmtIn(d)} desi</option>`).join('');
+  if (ds.includes(Number(cur))) $('#k-desi').value = cur;
+}
+function renderCamp() {
+  const s = state.settings;
+  const rates = campRates();
+  const rows = Calc.computeAll(s, {
+    desi: Number($('#k-desi').value), cost: parseNum($('#k-cost').value), vat: parseNum($('#k-vat').value) || 0, rates,
+  });
+  const focused = document.activeElement && document.activeElement.closest && document.activeElement.closest('#ktable')
+    ? [document.activeElement.dataset.mp, document.activeElement.dataset.k] : null;
+  $('#ktable tbody').innerHTML = rows.map((r) => {
+    const rt = rates[r.mp.id];
+    const inp = (k, v, def) => `<input class="profit-in${v !== def ? ' changed' : ''}" data-mp="${esc(r.mp.id)}" data-k="${k}" inputmode="decimal" value="${fmtIn(v)}" title="Varsayılan: %${pctf.format(def)}">`;
+    const commIn = inp('commission', rt.commission, rt.defCommission);
+    const profitIn = inp('profit', rt.profit, rt.defProfit);
+    const head = `<td class="name"><span class="mp-dot"></span><b>${esc(r.mp.name)}</b></td>`;
+    const rs = mpStyle(r.mp);
+    if (r.unavailable) return `<tr class="na" ${rs}>${head}<td>${commIn}</td><td colspan="2">Bu desi için kargo tanımlı değil</td><td>${profitIn}</td><td></td><td class="num">—</td></tr>`;
+    const b = r.result;
+    if (!b) return `<tr ${rs}>${head}<td>${commIn}</td><td class="num">${r.desiCargo !== null ? money(r.desiCargo) : '—'}<span class="sub2">desi kargosu</span></td><td class="num">${money(r.mp.fee || 0)}</td><td>${profitIn}</td><td></td><td class="num">—</td></tr>`;
+    if (b.error) return `<tr ${rs}>${head}<td>${commIn}</td><td colspan="5">${esc(b.error)}</td></tr>`;
+    const extra = Math.abs(b.profitPct - r.profit) > 0.5 ? `<span class="sub2" style="color:var(--warn)">%${pctf.format(b.profitPct)} gerçekleşen</span>` : '';
+    return `<tr ${rs}>${head}
+      <td>${commIn}<span class="sub2">${money(b.commissionTL)}</span></td>
+      <td class="num">${money(b.cargo)}<span class="sub2">${esc(b.tier)}</span></td>
+      <td class="num">${money(b.fee)}</td>
+      <td>${profitIn}</td>
+      <td class="num${b.netProfit < 0 ? ' neg' : ''}">${money(b.netProfit)}${extra}</td>
+      <td class="num price-cell" data-price="${b.price.toFixed(2)}" title="Kopyalamak için tıklayın">${money(b.price)} ₺</td>
+    </tr>`;
+  }).join('');
+  if (focused && focused[0]) {
+    const el = $(`#ktable input[data-mp="${focused[0]}"][data-k="${focused[1]}"]`);
+    if (el) { el.focus(); const v = el.value; el.value = ''; el.value = v; }
+  }
+}
+['#k-cost', '#k-vat'].forEach((id) => $(id).addEventListener('input', renderCamp));
+$('#k-desi').addEventListener('change', () => { saveCamp(); renderCamp(); });
+function setAllCamp(k, v) {
+  for (const m of state.settings.marketplaces) {
+    camp.rates[m.id] = camp.rates[m.id] || {};
+    if (Number.isFinite(v)) camp.rates[m.id][k] = v; else delete camp.rates[m.id][k];
+  }
+  saveCamp(); renderCamp();
+}
+$('#k-allcomm').addEventListener('input', (e) => setAllCamp('commission', parseNum(e.target.value)));
+$('#k-allprofit').addEventListener('input', (e) => setAllCamp('profit', parseNum(e.target.value)));
+$('#k-reset').addEventListener('click', () => {
+  camp.rates = {}; $('#k-allcomm').value = ''; $('#k-allprofit').value = ''; saveCamp(); renderCamp();
+});
+$('#ktable').addEventListener('input', (e) => {
+  const el = e.target; if (!el.classList.contains('profit-in')) return;
+  const v = parseNum(el.value);
+  camp.rates[el.dataset.mp] = camp.rates[el.dataset.mp] || {};
+  if (Number.isFinite(v) && (el.dataset.k !== 'commission' || v < 100)) camp.rates[el.dataset.mp][el.dataset.k] = v;
+  else delete camp.rates[el.dataset.mp][el.dataset.k];
+  saveCamp(); renderCamp();
+});
+$('#ktable').addEventListener('click', async (e) => {
+  const td = e.target.closest('.price-cell'); if (!td) return;
+  const txt = td.dataset.price.replace('.', ',');
+  try { await navigator.clipboard.writeText(txt); toast(`${txt} kopyalandı`); } catch { toast(txt); }
+});
+
 // ================= Toplu hesapla =================
 const trNorm = (s) => String(s ?? '').toLocaleLowerCase('tr')
   .replace(/ı/g, 'i').replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ş/g, 's').replace(/ö/g, 'o').replace(/ç/g, 'c').replace(/â/g, 'a')
@@ -361,7 +454,8 @@ function computeBulk() {
     const out = { sku: get(r, 'sku') ?? '', name: get(r, 'name') ?? '', notes: [], prices: {}, profits: {} };
     const cost = typeof get(r, 'cost') === 'number' ? get(r, 'cost') : parseNum(get(r, 'cost'));
     const rawCat = get(r, 'category');
-    let cat = blank(rawCat) ? defCat : matchCategory(rawCat);
+    const useCamp = $('#b-camp').checked;
+    let cat = useCamp ? { id: 'kampanya', name: 'Kampanya' } : (blank(rawCat) ? defCat : matchCategory(rawCat));
     if (!cat) out.notes.push(blank(rawCat) ? 'Kategori boş' : `Kategori bulunamadı: “${rawCat}”`);
     const rawDesi = get(r, 'desi');
     const desi = blank(rawDesi) ? defDesi : (typeof rawDesi === 'number' ? rawDesi : parseNum(rawDesi));
@@ -376,7 +470,7 @@ function computeBulk() {
     out.profit = Number.isFinite(profitAll) ? profitAll : null;
     if (out.notes.length) { out.error = true; return out; }
     const profits = Number.isFinite(profitAll) ? Object.fromEntries(mps.map((m) => [m.id, profitAll])) : {};
-    const res = Calc.computeAll(s, { categoryId: cat.id, desi, cost, vat, profits });
+    const res = Calc.computeAll(s, { categoryId: cat.id, desi, cost, vat, profits, rates: useCamp ? campRates() : undefined });
     const missing = [];
     for (const x of res) {
       if (x.unavailable || !x.result || x.result.error) { missing.push(x.mp.name); continue; }
@@ -460,7 +554,7 @@ const drop = $('#b-drop');
 ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
 ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
 drop.addEventListener('drop', (e) => loadBulkFile(e.dataTransfer.files[0]));
-['#b-defcat', '#b-defdesi'].forEach((id) => $(id).addEventListener('change', renderBulk));
+['#b-defcat', '#b-defdesi', '#b-camp'].forEach((id) => $(id).addEventListener('change', renderBulk));
 
 // ================= Ayarlar (yönetici) =================
 let draft = null;
@@ -475,8 +569,34 @@ $$('.subtab').forEach((b) => b.addEventListener('click', () => {
 function renderSettings() {
   draft = draft || structuredClone(state.settings);
   $('#rounding').value = draft.rounding || 'none';
-  renderCats(); renderDesi(); renderMps();
+  renderCats(); renderCampSettings(); renderDesi(); renderMps();
 }
+
+function renderCampSettings() {
+  const mps = draft.marketplaces;
+  const rates = draft.campaign.rates;
+  $('#sub-camp').innerHTML = `
+    <p class="hint" style="margin-top:0">Kampanya sayfası bu oranlarla açılır. Personel sayfada değiştirebilir; “Varsayılanlara dön” bu değerlere geri getirir.</p>
+    <div class="card cat-card">
+      <div class="table-wrap" style="max-height:none">
+        <table class="grid edit-grid">
+          <thead><tr><th class="name">Pazaryeri</th><th>Kampanya komisyonu %</th><th>Kampanya kârı %</th></tr></thead>
+          <tbody>${mps.map((m) => {
+            const r = rates[m.id] || { commission: 0, profit: 0 };
+            return `<tr ${mpStyle(m)} class="mp-row"><td class="name"><span class="mp-dot"></span>${esc(m.name)}${m.active ? '' : ' <span class="hint">(pasif)</span>'}</td>
+              <td><input data-crate="${esc(m.id)}" data-k="commission" inputmode="decimal" value="${numIn(r.commission)}"></td>
+              <td><input data-crate="${esc(m.id)}" data-k="profit" inputmode="decimal" value="${numIn(r.profit)}"></td></tr>`;
+          }).join('')}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+$('#sub-camp').addEventListener('input', (e) => {
+  const id = e.target.dataset.crate; if (!id) return;
+  const r = draft.campaign.rates;
+  r[id] = r[id] || { commission: 0, profit: 0 };
+  r[id][e.target.dataset.k] = parseNum(e.target.value) || 0;
+});
 
 function renderCats() {
   const mps = draft.marketplaces;
@@ -646,6 +766,7 @@ $('#sub-mps').addEventListener('click', (e) => {
     draft.marketplaces.push({ id, name: 'Yeni pazaryeri', active: true, mode: 'tiers', fee: 0, tiers: [], threshold: 0, baremMaxDesi: null,
       desiCargo: Object.fromEntries(draft.desi.map((d) => [d, null])) });
     draft.categories.forEach((c) => (c.rates[id] = { commission: 0, profit: 30 }));
+    draft.campaign.rates[id] = { commission: 0, profit: 30 };
     renderSettings(); return;
   }
   const card = e.target.closest('[data-i]'); if (!card) return;
@@ -667,6 +788,7 @@ function cleanDraft(d) {
     m.tiers = (m.tiers || []).filter((t) => t.max > 0 && t.cargo >= 0).sort((a, b) => a.max - b.max);
     m.name = String(m.name || '').trim() || m.id;
   });
+  for (const r of Object.values(s.campaign.rates)) if (!(r.commission >= 0 && r.commission < 100)) throw new Error('Kampanya: komisyon 0–99 arasında olmalı');
   s.categories.forEach((c) => {
     c.name = String(c.name || '').trim() || 'Kategori';
     for (const r of Object.values(c.rates)) if (!(r.commission >= 0 && r.commission < 100)) throw new Error(`${c.name}: komisyon 0–99 arasında olmalı`);
