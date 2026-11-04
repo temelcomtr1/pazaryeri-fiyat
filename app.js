@@ -1,6 +1,6 @@
 'use strict';
 // Pazaryeri Fiyatlandırma — GitHub Pages + Supabase sürümü
-const APP_VERSION = 10;
+const APP_VERSION = 11;
 
 // Beklenmeyen bir hata olursa boş ekran yerine açıklama göster
 function showFatal(msg) {
@@ -196,6 +196,21 @@ function mpStyle(mp) {
   return `style="--mp:${c};--mp-bg:${Calc.tint(c, 0.9)};--mp-bg2:${Calc.tint(c, 0.82)}"`;
 }
 
+// Tablo yeniden çizilirken odaktaki kutuda yazılan metni (ör. "10," ) ve imleç yerini korur
+function keepTyping(tableSel, render) {
+  const a = document.activeElement;
+  const inTable = a && a.tagName === 'INPUT' && a.closest(tableSel);
+  const keep = inTable ? { mp: a.dataset.mp, k: a.dataset.k, value: a.value, pos: a.selectionStart } : null;
+  render();
+  if (!keep) return;
+  const sel = `${tableSel} input[data-mp="${keep.mp}"]` + (keep.k ? `[data-k="${keep.k}"]` : '');
+  const el = $(sel);
+  if (!el) return;
+  el.value = keep.value;
+  el.focus();
+  try { el.setSelectionRange(keep.pos, keep.pos); } catch { /* yok say */ }
+}
+
 // ================= Fiyat hesapla =================
 const calc = { profits: {} }; // kullanıcının elle değiştirdiği kâr oranları
 const PREF_KEY = 'pf-calc-prefs';
@@ -215,7 +230,8 @@ function fillCalcSelectors() {
   if (ds.includes(Number(curDesi))) $('#c-desi').value = curDesi;
 }
 
-function renderCalc() {
+function renderCalc() { keepTyping('#ctable', renderCalcInner); }
+function renderCalcInner() {
   const s = state.settings;
   const input = {
     categoryId: $('#c-cat').value,
@@ -225,7 +241,6 @@ function renderCalc() {
     profits: calc.profits,
   };
   const rows = Calc.computeAll(s, input);
-  const focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.mp : null;
   $('#ctable tbody').innerHTML = rows.map((r) => {
     const changed = Number.isFinite(calc.profits[r.mp.id]) && calc.profits[r.mp.id] !== r.defaultProfit;
     const profitIn = `<input class="profit-in${changed ? ' changed' : ''}" data-mp="${esc(r.mp.id)}" inputmode="decimal" value="${fmtIn(r.profit)}" title="Varsayılan: %${pctf.format(r.defaultProfit)}">`;
@@ -250,10 +265,6 @@ function renderCalc() {
       <td class="num price-cell" data-price="${b.price.toFixed(2)}" title="Kopyalamak için tıklayın">${money(b.price)} ₺</td>
     </tr>`;
   }).join('');
-  if (focused) {
-    const el = $(`#ctable input[data-mp="${focused}"]`);
-    if (el) { el.focus(); const v = el.value; el.value = ''; el.value = v; }
-  }
 }
 
 $('#c-cost').addEventListener('input', renderCalc);
@@ -305,14 +316,13 @@ function fillCampSelectors() {
   $('#k-desi').innerHTML = ds.map((d) => `<option value="${d}">${fmtIn(d)} desi</option>`).join('');
   if (ds.includes(Number(cur))) $('#k-desi').value = cur;
 }
-function renderCamp() {
+function renderCamp() { keepTyping('#ktable', renderCampInner); }
+function renderCampInner() {
   const s = state.settings;
   const rates = campRates();
   const rows = Calc.computeAll(s, {
     desi: Number($('#k-desi').value), cost: parseNum($('#k-cost').value), vat: parseNum($('#k-vat').value) || 0, rates,
   });
-  const focused = document.activeElement && document.activeElement.closest && document.activeElement.closest('#ktable')
-    ? [document.activeElement.dataset.mp, document.activeElement.dataset.k] : null;
   $('#ktable tbody').innerHTML = rows.map((r) => {
     const rt = rates[r.mp.id];
     const inp = (k, v, def) => `<input class="profit-in${v !== def ? ' changed' : ''}" data-mp="${esc(r.mp.id)}" data-k="${k}" inputmode="decimal" value="${fmtIn(v)}" title="Varsayılan: %${pctf.format(def)}">`;
@@ -334,10 +344,6 @@ function renderCamp() {
       <td class="num price-cell" data-price="${b.price.toFixed(2)}" title="Kopyalamak için tıklayın">${money(b.price)} ₺</td>
     </tr>`;
   }).join('');
-  if (focused && focused[0]) {
-    const el = $(`#ktable input[data-mp="${focused[0]}"][data-k="${focused[1]}"]`);
-    if (el) { el.focus(); const v = el.value; el.value = ''; el.value = v; }
-  }
 }
 ['#k-cost', '#k-vat'].forEach((id) => $(id).addEventListener('input', renderCamp));
 $('#k-desi').addEventListener('change', () => { saveCamp(); renderCamp(); });
