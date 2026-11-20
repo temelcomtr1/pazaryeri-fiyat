@@ -1,6 +1,6 @@
 'use strict';
 // Pazaryeri Fiyatlandırma — GitHub Pages + Supabase sürümü
-const APP_VERSION = 11;
+const APP_VERSION = 13;
 
 // Beklenmeyen bir hata olursa boş ekran yerine açıklama göster
 function showFatal(msg) {
@@ -172,6 +172,14 @@ function normalizeSettings(s) {
   if (rev < 4) { // ePTT: maliyet 165 ₺ altı → 25 ₺ kargo
     const ptt = s.marketplaces.find((m) => m.id === 'eptt');
     if (ptt && !ptt.costRule) ptt.costRule = { maxCost: 165, cargo: 25 };
+  }
+  if (rev < 9) { // Pazarama yeni barem kargoları (19.11.2026): 150 ₺ altı 108 ₺, 150–300 ₺ arası 114 ₺
+    const pz = s.marketplaces.find((m) => m.id === 'pazarama');
+    if (pz) pz.tiers = [{ max: 150, cargo: 108 }, { max: 300, cargo: 114 }];
+  }
+  if (rev < 8) { // Pazarama yeni desi fiyatları (19.11.2026)
+    const pz = s.marketplaces.find((m) => m.id === 'pazarama');
+    if (pz) pz.desiCargo = Object.assign(pz.desiCargo || {}, { 2: 130, 5: 178, 10: 242, 15: 310, 20: 450, 25: 572, 30: 735, 35: 992, 40: 1250 });
   }
   if (rev < 7 || !s.campaign || !s.campaign.rates) { // Kampanya varsayılanları
     s.campaign = s.campaign && s.campaign.rates ? s.campaign : { rates: structuredClone(def.campaign.rates) };
